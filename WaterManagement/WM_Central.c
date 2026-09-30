@@ -7,6 +7,38 @@
 #include <string.h>
 #include <signal.h>
 
+#include <sqlite3.h>
+
+void inicializar_bd() {
+    sqlite3 *db;
+    char *mensaje_error = 0;
+    
+    // Abrir o crear el archivo de la base de datos
+    int rc = sqlite3_open("central.db", &db);
+    if (rc) {
+        fprintf(stderr, "\033[0;31mError abriendo base de datos: %s\033[0m\n", sqlite3_errmsg(db));
+        exit(EXIT_FAILURE);
+    }
+
+    // Consulta SQL para el inventario de estaciones
+    const char *sql_estaciones = 
+        "CREATE TABLE IF NOT EXISTS ESTACIONES("
+        "ID TEXT PRIMARY KEY NOT NULL,"
+        "UBICACION TEXT NOT NULL,"
+        "ESTADO TEXT NOT NULL);";
+
+    // Ejecutar la consulta
+    rc = sqlite3_exec(db, sql_estaciones, NULL, 0, &mensaje_error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "\033[0;31mError SQL: %s\033[0m\n", mensaje_error);
+        sqlite3_free(mensaje_error);
+    } else {
+        printf("\033[0;32m[BD] Tabla ESTACIONES lista.\033[0m\n");
+    }
+
+    sqlite3_close(db);
+}
+
 int s; /* socket */
 
 void
@@ -40,6 +72,8 @@ main (int argc, char *argv[])
 
 	/* Tomar los argumentos */		
 	servidor_puerto = argv[1];
+
+    inicializar_bd(); //inicializar la base de datos
 
 	/**** Paso 1: Abrir el socket ****/
 
@@ -129,6 +163,28 @@ main (int argc, char *argv[])
                     printf("    ID: %s\n\r", id_estacion);
                     printf("    Ubicación: %s\n\r", ubicacion);
 
+                    // --- NUEVO CÓDIGO SQLITE PARA GUARDAR EL REGISTRO ---
+                    sqlite3 *db;
+                    char *err_msg = 0;
+
+                    // 1. Abrir la conexión a la base de datos en el proceso hijo
+                    if (sqlite3_open("central.db", &db) == SQLITE_OK) {
+                        char sql_insert[512];
+    
+                        // 2. Construir la consulta. Usamos REPLACE por si la estación se reinicia y vuelve a registrarse
+                        sprintf(sql_insert, "REPLACE INTO ESTACIONES (ID, UBICACION, ESTADO) VALUES ('%s', '%s', 'AVAILABLE');", id_estacion, ubicacion);
+    
+                        // 3. Ejecutar la consulta
+                        if (sqlite3_exec(db, sql_insert, NULL, 0, &err_msg) != SQLITE_OK) {
+                            fprintf(stderr, "\033[0;31mError guardando en BD: %s\033[0m\n", err_msg);
+                            sqlite3_free(err_msg);
+                        } else {
+                            printf("\033[0;32m -> Registro guardado en central.db\033[0m\n");
+                        }
+    
+                        // 4. Cerrar la conexión
+                        sqlite3_close(db);
+                    }
                     // Preparamos la respuesta estructurada de éxito
                     sprintf(respuesta, "STATUS#OK#Estacion registrada correctamente");
                 } 
