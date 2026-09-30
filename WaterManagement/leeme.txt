@@ -1,1 +1,4 @@
-
+DOCKER
+docker build -t wm_central_img .
+docker run --rm -it -v "$(pwd):/app" wm_central_img sqlite3 /app/central.db
+y ya se puede ejecutar SELECT * FROM ESTACIONES;
