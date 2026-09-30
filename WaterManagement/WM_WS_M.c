@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -25,6 +26,45 @@ void simular_fuga(int senyal)
 	printf("\n[!] ¡Señal recibida! Fuga de agua simulada. El próximo estado será KO.\n\r");
 }
 
+int enviar_a_central(char *ip, char *puerto, char *trama) {
+    int sock_c;
+    struct sockaddr_in dir_central;
+    char buffer[256];
+
+    // 1. Crear socket cliente
+    sock_c = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_c == -1) {
+        perror("Error al abrir socket hacia la Central");
+        return -1;
+    }
+
+    // 2. Configurar dirección de la Central
+    dir_central.sin_family = AF_INET;
+    dir_central.sin_addr.s_addr = inet_addr(ip);
+    dir_central.sin_port = htons(atoi(puerto));
+
+    // 3. Conectar con la Central
+    if (connect(sock_c, (struct sockaddr *)&dir_central, sizeof(dir_central)) == -1) {
+        perror("Error al conectar con la Central");
+        close(sock_c);
+        return -1;
+    }
+
+    // 4. Enviar la trama (ej: REGISTRO o FUGA)
+    write(sock_c, trama, strlen(trama));
+
+    // 5. Leer respuesta de la Central
+    int n = read(sock_c, buffer, sizeof(buffer) - 1);
+    if (n > 0) {
+        buffer[n] = '\0';
+        printf("[Central Response] %s\n", buffer);
+    }
+
+    // 6. Cerrar conexión
+    close(sock_c);
+    return 0;
+}
+
 int main (int argc, char *argv[])
 {
 	char *servidor_puerto;
@@ -35,20 +75,34 @@ int main (int argc, char *argv[])
 	int n, enviados, recibidos;
 	int proceso;
 	int contador=0;
+	char *puerto_engine;
+	char *ip_central;
+	char *puerto_central;
+	char *id_estacion;
 
 	/* Comprobar los argumentos */
-	if (argc != 2)  //si o si necesitamos un puerto en el que escuchar, por lo que se necesitan 2 argumentos
-					//si hay diferentes salta el error
+	/* Comprobar los argumentos (ahora necesitamos 4 argumentos adicionales) */
+	if (argc != 5)  
 	{
-		fprintf(stderr, "Error. Debe indicar el puerto del servidor\r\n");
-		fprintf(stderr, "Sintaxis: %s <puerto>\n\r", argv[0]);
-		fprintf(stderr, "Ejemplo : %s 8574\"\n\r", argv[0]);
+		fprintf(stderr, "Error. Faltan argumentos\r\n");
+		fprintf(stderr, "Sintaxis: %s <Puerto_Engine> <IP_Central> <Puerto_Central> <ID_Estacion>\n\r", argv[0]);
+		fprintf(stderr, "Ejemplo : %s 8574 127.0.0.1 5000 WS-04\n\r", argv[0]);
 		return 1;
 	}
+	/* Tomar los argumentos */
+	puerto_engine = argv[1];
+	ip_central = argv[2];
+	puerto_central = argv[3];
+	id_estacion = argv[4];
 
-	/* Tomar los argumentos */		
-	servidor_puerto = argv[1];
+	servidor_puerto = puerto_engine;
 
+	/**** Paso 1: Registrarse en WM_Central al arrancar ****/
+	char trama_registro[256];
+	snprintf(trama_registro, sizeof(trama_registro), "REGISTRO#%s#River Park", id_estacion);
+	printf("Registrando estación %s en la Central (%s:%s)...\n\r", id_estacion, ip_central, puerto_central);
+	enviar_a_central(ip_central, puerto_central, trama_registro);
+	
 	/**** Paso 1: Abrir el socket ****/
 
 	s = socket(AF_INET, SOCK_STREAM, 0); /* creo el socket */
@@ -88,8 +142,6 @@ int main (int argc, char *argv[])
 	/**** Paso 4: Esperar conexiones ****/
 
 	signal(SIGINT, finalizar); // Asocia Ctrl+C a la función finalizar
-
-    signal(SIGINT, finalizar); // Asocia Ctrl+C a la función finalizar
 	signal(SIGTSTP, simular_fuga); // Asocia Ctrl+Z a la función simular_fuga
 
 	while (1)
@@ -133,6 +185,10 @@ int main (int argc, char *argv[])
 						sprintf(respuesta, "STATUS#OK");
 					} else {
 						sprintf(respuesta, "STATUS#KO#FUGA_DETECTADA");
+						/* Si hay fuga, avisamos también a la Central mediante sockets */
+						char trama_fuga[256];
+						snprintf(trama_fuga, sizeof(trama_fuga), "FUGA#%s#Fuga detectada por sensor", id_estacion);
+						enviar_a_central(ip_central, puerto_central, trama_fuga);
 					}
 					
 					enviados = write(s2, respuesta, strlen(respuesta)); 
