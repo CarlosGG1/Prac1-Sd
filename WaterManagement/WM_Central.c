@@ -8,6 +8,7 @@
 #include <signal.h>
 
 #include <sqlite3.h>
+#include <librdkafka/rdkafka.h>
 
 void inicializar_bd() {
     sqlite3 *db;
@@ -37,6 +38,42 @@ void inicializar_bd() {
     }
 
     sqlite3_close(db);
+}
+
+void publicar_alerta_kafka(const char* id_estacion) {
+    char errstr[512];
+    rd_kafka_t *rk;
+    rd_kafka_conf_t *conf = rd_kafka_conf_new();
+
+    // 1. Apuntamos al puerto local 9092 donde escucha tu contenedor de Kafka
+    if (rd_kafka_conf_set(conf, "bootstrap.servers", "127.0.0.1:9092", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
+        fprintf(stderr, "\033[0;31mError config Kafka: %s\033[0m\n", errstr);
+        return;
+    }
+
+    // 2. Creamos la instancia del Productor
+    rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
+    if (!rk) {
+        fprintf(stderr, "\033[0;31mError creando productor Kafka: %s\033[0m\n", errstr);
+        return;
+    }
+
+    // 3. Formateamos el mensaje como un JSON para que el Operador web lo procese fácilmente
+    char payload[256];
+    sprintf(payload, "{\"id_estacion\": \"%s\", \"estado\": \"KO\", \"alerta\": \"FUGA DETECTADA\"}", id_estacion);
+
+    // 4. Enviamos el mensaje al topic "alertas_agua"
+    rd_kafka_producev(rk,
+                      RD_KAFKA_V_TOPIC("alertas_agua"),
+                      RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+                      RD_KAFKA_V_VALUE(payload, strlen(payload)),
+                      RD_KAFKA_V_OPAQUE(NULL),
+                      RD_KAFKA_V_END);
+
+    // 5. Forzamos el envío inmediato y cerramos
+    rd_kafka_flush(rk, 1000);
+    rd_kafka_destroy(rk);
+    printf("\033[0;34m[KAFKA] Mensaje publicado en el topic: %s\033[0m\n", payload);
 }
 
 int s; /* socket */
@@ -187,7 +224,23 @@ main (int argc, char *argv[])
                     }
                     // Preparamos la respuesta estructurada de éxito
                     sprintf(respuesta, "STATUS#OK#Estacion registrada correctamente");
-                } 
+                } else if (strcmp(comando, "ALERTA") == 0) {
+                
+                    printf("\033[0;31m -> [EMERGENCIA] Fuga reportada en la estacion: %s\033[0m\n\r", id_estacion);
+                    
+                    sqlite3 *db;
+                    if (sqlite3_open("central.db", &db) == SQLITE_OK) {
+                        char sql_update[512];
+                        sprintf(sql_update, "UPDATE ESTACIONES SET ESTADO = 'KO' WHERE ID = '%s';", id_estacion);
+                        sqlite3_exec(db, sql_update, NULL, 0, NULL);
+                        sqlite3_close(db);
+                    }
+
+                    // LLAMADA AL PRODUCTOR DE KAFKA
+                    publicar_alerta_kafka(id_estacion);
+
+                    sprintf(respuesta, "STATUS#OK#Alerta registrada en BD y enviada a Kafka");
+                }
                 else 
                 {
                     sprintf(respuesta, "STATUS#ERROR#Comando no reconocido");
@@ -223,4 +276,3 @@ main (int argc, char *argv[])
 	printf("Socket cerrado\n\r");
 	return 0;
 }
-
