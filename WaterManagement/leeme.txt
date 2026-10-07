@@ -1,8 +1,12 @@
-DOCKER
+---DOCKER CON BASE DE DATOS---
+
 docker build -t wm_central_img .
 docker run --rm -it -v "$(pwd):/app" wm_central_img sqlite3 /app/central.db
 y ya se puede ejecutar SELECT * FROM ESTACIONES;
 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---SIN AUTOMATIZARLO CON LA CENTRAL SOLO CON DOCKER---
 
 CREAMOS EL TOPIC ALERTAS_AGUA
 docker exec -it broker /opt/kafka/bin/kafka-topics.sh --create --topic alertas_agua --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
@@ -16,3 +20,18 @@ docker exec -it broker /opt/kafka/bin/kafka-console-producer.sh --bootstrap-serv
 ESCRIBIR UN MENSAJE DESPUES DEL >
 Ejemplo: EMERGENCIA#WS-01#FUGA
 Comprobar que en la terminal del consumidor sale el mensaje
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---UNA VEZ LO AUTOMATIZAMOS CON KAFKA EN CENTRAL---
+
+TERMINAL 1: 
+docker build -t wm_central_img .
+docker run --rm --network host -v "$(pwd):/app" wm_central_img
+
+TERMINAL 2:
+docker exec -it broker /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic alertas_agua
+
+TERMINAL 3:
+nc 127.0.0.1 8080
+Escribir: ALERTA#WS-01#Parque Centro
