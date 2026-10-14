@@ -10,7 +10,55 @@
 #include <string.h>
 #include <signal.h>
 
+#include <librdkafka/rdkafka.h>
+
 int s; /* socket */
+
+void escuchar_ordenes_kafka(const char* mi_id, int socket_engine) {
+    char errstr[512];
+    rd_kafka_conf_t *conf = rd_kafka_conf_new();
+    
+    // 1. Apuntamos al broker de Kafka y definimos el ID del grupo
+    rd_kafka_conf_set(conf, "bootstrap.servers", "127.0.0.1:9092", errstr, sizeof(errstr));
+    rd_kafka_conf_set(conf, "group.id", mi_id, errstr, sizeof(errstr));
+
+    // 2. Creamos el consumidor
+    rd_kafka_t *rk = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
+    if (!rk) {
+        fprintf(stderr, "\033[0;31mError creando consumidor Kafka\033[0m\n");
+        exit(1);
+    }
+
+    // 3. Nos suscribimos al canal
+    rd_kafka_topic_partition_list_t *topics = rd_kafka_topic_partition_list_new(1);
+    rd_kafka_topic_partition_list_add(topics, "ordenes_riego", RD_KAFKA_PARTITION_UA);
+    rd_kafka_subscribe(rk, topics);
+    rd_kafka_topic_partition_list_destroy(topics);
+
+    printf("\033[0;34m[%s] Escuchando órdenes de riego en Kafka...\033[0m\n", mi_id);
+
+    // 4. Bucle infinito en segundo plano
+    while (1) {
+        rd_kafka_message_t *msg = rd_kafka_consumer_poll(rk, 1000);
+        if (msg && !msg->err) {
+            char payload[256];
+            snprintf(payload, sizeof(payload), "%.*s", (int)msg->len, (char *)msg->payload);
+            
+            // Si el mensaje es para nosotros, lo procesamos
+            if (strstr(payload, mi_id) != NULL) {
+                printf("\033[0;32m[NUEVA ORDEN RECIBIDA] %s\033[0m\n", payload);
+                
+                // Avisamos al Engine
+                if (strstr(payload, "ABRIR") != NULL) {
+                    write(socket_engine, "COMANDO#ABRIR", 13);
+                } else if (strstr(payload, "CERRAR") != NULL) {
+                    write(socket_engine, "COMANDO#CERRAR", 14);
+                }
+            }
+            rd_kafka_message_destroy(msg);
+        }
+    }
+}
 
 void
 finalizar (int senyal)
@@ -158,6 +206,11 @@ int main (int argc, char *argv[])
 		{
 			break; /* salir del bucle */
 		}
+
+        if (fork() == 0) {
+            escuchar_ordenes_kafka(id_estacion, s2);
+            exit(0);
+        }
 		/* crear un nuevo proceso para que se pueda atender varias peticiones en paralelo */
 		proceso = fork();
 		if (proceso == -1) exit(1);
