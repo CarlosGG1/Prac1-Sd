@@ -1,0 +1,6 @@
+FROM gcc:latest
+RUN apt-get update && apt-get install -y librdkafka-dev
+COPY WM_WS_M.c /tmp/WM_WS_M.c
+RUN gcc /tmp/WM_WS_M.c -o /bin/WM_WS_M -lrdkafka
+WORKDIR /app
+ENTRYPOINT ["WM_WS_M"]
