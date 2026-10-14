@@ -35,3 +35,20 @@ docker exec -it broker /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-serv
 TERMINAL 3:
 nc 127.0.0.1 8080
 Escribir: ALERTA#WS-01#Parque Centro
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--- PASOS PARA EJECUTAR LA WEB ---
+1. Activamos el venv (para las librerias flask):
+source venv/bin/activate
+
+2. Añadimos nuestro usuario al grupo docker:
+sudo usermod -aG docker $USER
+
+3. Actualiza los grupos de la terminal
+newgrp docker
+
+4. Levantamos los servicios docker
+docker-compose up -d
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
