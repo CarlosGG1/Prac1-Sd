@@ -52,3 +52,34 @@ newgrp docker
 docker-compose up -d
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---CONEXION ENTRE CENTRAL, MONITOR, ENGINE, OPERADOR---
+
+PASOS PREVIOS:
+-Limpiar contenedores antiguos
+docker stop $(docker ps -aq) 2>/dev/null; docker rm $(docker ps -aq) 2>/dev/null
+
+-Encender la infraestructura en segundo plano (Kafka y mongoDB)
+docker compose up -d
+
+-Crear los dos canales (Topics) de Kafka (vias de comunicacion)
+docker exec -it broker /opt/kafka/bin/kafka-topics.sh --create --topic alertas_agua --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
+docker exec -it broker /opt/kafka/bin/kafka-topics.sh --create --topic ordenes_riego --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
+
+TERMINAL 1 (CENTRAL):
+docker build -t wm_central_img .
+docker run --rm --network host -v "$(pwd):/app" wm_central_img
+
+TERMINAL 2 (MONITOR):
+docker build -f Dockerfile.monitor -t wm_monitor_img .
+docker run --rm --network host wm_monitor_img 5000 127.0.0.1 8080 WS-01
+
+TERMINAL 3 (ENGINE):
+gcc WM_WS_E_3.c -o WM_WS_E
+./WM_WS_E 127.0.0.1 5000
+
+TERMINAL 4 (OPERADOR):
+docker exec -it broker /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic ordenes_riego
+>{"id": "WS-01", "accion": "ABRIR"}
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
