@@ -67,7 +67,8 @@ bash crear_topics.sh
 
 TERMINAL 1 (CENTRAL):   WM_Central <Puerto> <IP_Broker> <Puerto_Broker>
 docker build -t wm_central_img .
-docker run --rm --network host -v "$(pwd):/app" wm_central_img
+docker run --rm -it --network host -v "$(pwd):/app" wm_central_img
+(con -it la CENTRAL tiene menú propio: iniciar <WS-01|todas> [seg] | bloquear <WS-01|todas> | activar <WS-01|todas> | estado | ayuda)
 (por defecto arranca con: 8080 127.0.0.1 9092; para otros valores: ... wm_central_img WM_Central 8080 <ip_broker> <puerto_broker>)
 
 TERMINAL 2 (MONITOR):   WM_WS_M <Puerto_Monitor> <IP_Central> <Puerto_Central> <ID_WS> [Ubicacion]
@@ -83,7 +84,7 @@ Orden de arranque: da igual (Monitor y Engine reintentan solos), pero CENTRAL y 
 TERMINAL 4 (OPERADOR):  WM_FO <IP_Broker> <Puerto_Broker> <ID_Operario> [fichero_servicios]
 docker build -f Dockerfile.fo -t wm_fo_img .
 docker run --rm -it --network host -v "$(pwd):/app" wm_fo_img 127.0.0.1 9092 OP-1
-Dentro del FO: escribir  WS-01 15  (pide riego 15 s en WS-01) | f servicios.txt (ejecuta un fichero) | q (salir)
+Dentro del FO: escribir  WS-01 15  (pide riego 15 s en WS-01) | l (ver estaciones disponibles) | f servicios.txt (ejecuta un fichero) | q (salir)
 Con fichero desde el arranque:  ... wm_fo_img 127.0.0.1 9092 OP-1 servicios.txt
 Formato del fichero: una línea por servicio, ID_WS#segundos (segundos opcionales). Entre servicios esperan 4 s.
 
