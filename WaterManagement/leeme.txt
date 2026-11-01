@@ -62,24 +62,32 @@ docker stop $(docker ps -aq) 2>/dev/null; docker rm $(docker ps -aq) 2>/dev/null
 -Encender la infraestructura en segundo plano (Kafka y mongoDB)
 docker compose up -d
 
--Crear los dos canales (Topics) de Kafka (vias de comunicacion)
-docker exec -it broker /opt/kafka/bin/kafka-topics.sh --create --topic alertas_agua --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
-docker exec -it broker /opt/kafka/bin/kafka-topics.sh --create --topic ordenes_riego --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
+-Crear los canales (Topics) de Kafka (peticiones_riego, notificaciones_fo, ordenes_ws, eventos_ws, alertas_agua)
+bash crear_topics.sh
 
-TERMINAL 1 (CENTRAL):
+TERMINAL 1 (CENTRAL):   WM_Central <Puerto> <IP_Broker> <Puerto_Broker>
 docker build -t wm_central_img .
 docker run --rm --network host -v "$(pwd):/app" wm_central_img
+(por defecto arranca con: 8080 127.0.0.1 9092; para otros valores: ... wm_central_img WM_Central 8080 <ip_broker> <puerto_broker>)
 
-TERMINAL 2 (MONITOR):
+TERMINAL 2 (MONITOR):   WM_WS_M <Puerto_Monitor> <IP_Central> <Puerto_Central> <ID_WS> [Ubicacion]
 docker build -f Dockerfile.monitor -t wm_monitor_img .
-docker run --rm --network host wm_monitor_img 5000 127.0.0.1 8080 WS-01
+docker run --rm --network host wm_monitor_img 5000 127.0.0.1 8080 WS-01 "River Park"
 
-TERMINAL 3 (ENGINE):
-gcc WM_WS_E_3.c -o WM_WS_E
-./WM_WS_E 127.0.0.1 5000
+TERMINAL 3 (ENGINE):    WM_WS_E <IP_Broker> <Puerto_Broker> <IP_Monitor> <Puerto_Monitor>
+docker build -f Dockerfile.engine -t wm_engine_img .
+docker run --rm -it --network host wm_engine_img 127.0.0.1 9092 127.0.0.1 5000
+Menú del Engine (letra + Enter): i = iniciar riego manual | f = finalizar riego | k = simular FUGA | r = fuga reparada
+Orden de arranque: da igual (Monitor y Engine reintentan solos), pero CENTRAL y Kafka deben estar en marcha.
 
-TERMINAL 4 (OPERADOR):
-docker exec -it broker /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic ordenes_riego
->{"id": "WS-01", "accion": "ABRIR"}
+TERMINAL 4 (OPERADOR):  WM_FO <IP_Broker> <Puerto_Broker> <ID_Operario> [fichero_servicios]
+docker build -f Dockerfile.fo -t wm_fo_img .
+docker run --rm -it --network host -v "$(pwd):/app" wm_fo_img 127.0.0.1 9092 OP-1
+Dentro del FO: escribir  WS-01 15  (pide riego 15 s en WS-01) | f servicios.txt (ejecuta un fichero) | q (salir)
+Con fichero desde el arranque:  ... wm_fo_img 127.0.0.1 9092 OP-1 servicios.txt
+Formato del fichero: una línea por servicio, ID_WS#segundos (segundos opcionales). Entre servicios esperan 4 s.
+
+COMPROBAR LA BD EN CUALQUIER MOMENTO:
+docker run --rm -v "$(pwd):/app" wm_central_img sqlite3 /app/central.db "SELECT ID, ESTADO, CAUDAL, VOLUMEN, OPERARIO FROM ESTACIONES;"
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
