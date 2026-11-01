@@ -184,13 +184,22 @@ int main(int argc, char *argv[])
 		ejecutar_fichero(argv[4]);
 
 	/* Modo interactivo */
-	printf("\nEscribe  <ID_WS> [segundos]  para pedir un riego, 'f <fichero>' para ejecutar un fichero, 'q' para salir.\n");
+	printf("\nEscribe  <ID_WS> [segundos]  para pedir un riego, 'l' para ver las estaciones disponibles, 'f <fichero>' para ejecutar un fichero, 'q' para salir.\n");
 	while (fgets(linea, sizeof(linea), stdin) != NULL)
 	{
 		linea[strcspn(linea, "\r\n")] = '\0';
 
 		if (linea[0] == '\0') continue;
 		if (strcmp(linea, "q") == 0) break;
+
+		if (strcmp(linea, "l") == 0)
+		{
+			/* Pide a CENTRAL la lista de estaciones disponibles; la respuesta llega como notificación INFO */
+			char peticion[128];
+			snprintf(peticion, sizeof(peticion), "LISTAR#%s", operario);
+			kafka_publicar(productor, TOPIC_PETICIONES, operario, peticion);
+			continue;
+		}
 
 		if (sscanf(linea, "f %99s", ruta) == 1)
 		{
