@@ -37,6 +37,7 @@
 char *broker_ip;     /* IP o nombre del broker Kafka (argumento de línea de comandos) */
 char *broker_puerto; /* puerto del broker Kafka */
 pid_t hijo_kafka;    /* proceso consumidor de Kafka */
+pid_t hijo_admin;    /* proceso del menú de administración de CENTRAL (solo si hay teclado) */
 int s;               /* socket de escucha */
 
 /* ======================= BASE DE DATOS ======================= */
@@ -160,7 +161,7 @@ void inicializar_bd()
 	 * Al arrancar o reiniciar, CENTRAL muestra las estaciones ya registradas como DESCONECTADAS
 	 * hasta que cada una vuelva a conectar y nos diga su estado real.
 	 */
-	if (ejecutar_sql("UPDATE ESTACIONES SET ESTADO = 'DISCONNECTED', CAUDAL = 0, OPERARIO = '';") >= 0)
+	if (ejecutar_sql("UPDATE ESTACIONES SET ESTADO = 'DISCONNECTED', CAUDAL = 0, OPERARIO = '' WHERE ESTADO <> 'OUT_OF_SERVICE';") >= 0)
 		printf("\033[0;33m[BD] Estaciones registradas marcadas como DISCONNECTED hasta que reconecten.\033[0m\n");
 }
 
@@ -211,6 +212,8 @@ const char *texto_motivo(const char *motivo)
 }
 
 /* PETICION#operario#ws#segundos: valida la estación y, si está libre, ordena abrir la electroválvula */
+void listar_disponibles(rd_kafka_t *prod, const char *operario); /* definida más abajo */
+
 void tratar_peticion(rd_kafka_t *prod, const char *operario, const char *ws, const char *segundos)
 {
 	char texto[300], estado[32] = "", operario_actual[50] = "";
@@ -329,8 +332,175 @@ void tratar_mensaje(rd_kafka_t *prod, const char *payload, size_t len)
 	int n = dividir_campos(buffer, campos, 8);
 	if (strcmp(campos[0], "PETICION") == 0 && n >= 4)
 		tratar_peticion(prod, campos[1], campos[2], campos[3]);
+	else if (strcmp(campos[0], "LISTAR") == 0 && n >= 2)
+		listar_disponibles(prod, campos[1]);
 	else
 		tratar_evento(prod, campos, n);
+}
+
+
+/* ======================= ADMINISTRACIÓN DESDE CENTRAL Y LISTADO PARA OPERARIOS ======================= */
+
+#define MAX_ESTACIONES 100
+
+/* Rellena 'ids' con los ID de todas las estaciones (o solo las de estado 'filtro' si no es NULL). Devuelve cuántas. */
+int leer_estaciones(char ids[][50], char estados[][32], int max, const char *filtro)
+{
+	sqlite3 *db;
+	sqlite3_stmt *st;
+	int n = 0;
+
+	if (sqlite3_open("central.db", &db) != SQLITE_OK)
+	{
+		sqlite3_close(db);
+		return 0;
+	}
+	sqlite3_busy_timeout(db, 2000);
+	if (sqlite3_prepare_v2(db, "SELECT ID, ESTADO FROM ESTACIONES ORDER BY ID;", -1, &st, NULL) == SQLITE_OK)
+	{
+		while (sqlite3_step(st) == SQLITE_ROW && n < max)
+		{
+			const char *estado = (const char *)sqlite3_column_text(st, 1);
+			if (filtro && strcmp(estado, filtro) != 0) continue;
+			snprintf(ids[n], 50, "%s", (const char *)sqlite3_column_text(st, 0));
+			snprintf(estados[n], 32, "%s", estado);
+			n++;
+		}
+		sqlite3_finalize(st);
+	}
+	sqlite3_close(db);
+	return n;
+}
+
+/* Un operario pide ver las estaciones disponibles: se le envía la lista como notificación INFO */
+void listar_disponibles(rd_kafka_t *prod, const char *operario)
+{
+	static char ids[MAX_ESTACIONES][50], estados[MAX_ESTACIONES][32];
+	char texto[1024] = "";
+	int i, n = leer_estaciones(ids, estados, MAX_ESTACIONES, "AVAILABLE");
+
+	if (n == 0)
+	{
+		snprintf(texto, sizeof(texto), "No hay estaciones disponibles ahora mismo");
+	}
+	else
+	{
+		snprintf(texto, sizeof(texto), "Estaciones disponibles (%d):", n);
+		for (i = 0; i < n && strlen(texto) < sizeof(texto) - 80; i++)
+		{
+			strncat(texto, " ", sizeof(texto) - strlen(texto) - 1);
+			strncat(texto, ids[i], sizeof(texto) - strlen(texto) - 1);
+		}
+	}
+	printf("[LISTAR] %s pide las estaciones disponibles -> %s\n", operario, texto);
+	notificar_fo(prod, operario, "INFO", texto);
+}
+
+/* Bloquear una estación: corta el riego si lo hubiera y la deja OUT_OF_SERVICE (naranja, "Fuera de Servicio") */
+void bloquear_ws(rd_kafka_t *prod, const char *id)
+{
+	char estado[32] = "", operario[50] = "";
+
+	if (!obtener_estacion(id, estado, sizeof(estado), operario, sizeof(operario)))
+	{
+		printf("\033[0;31m[ADMIN] La estación %s no existe\033[0m\n", id);
+		return;
+	}
+	if (strcmp(estado, "WATERING") == 0)
+	{
+		char orden[128], aviso[200];
+		snprintf(orden, sizeof(orden), "CERRAR#%s#%s", id, operario);
+		publicar(prod, TOPIC_ORDENES, id, orden);
+		snprintf(aviso, sizeof(aviso), "CENTRAL ha bloqueado %s: riego interrumpido. Estación Fuera de Servicio", id);
+		notificar_fo(prod, operario, "INFO", aviso);
+	}
+	char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'OUT_OF_SERVICE', CAUDAL = 0, OPERARIO = '' WHERE ID = %Q;", id);
+	ejecutar_sql(sql);
+	sqlite3_free(sql);
+	printf("\033[0;33m[ADMIN] %s bloqueada: FUERA DE SERVICIO\033[0m\n", id);
+}
+
+/* Activar una estación bloqueada: vuelve a AVAILABLE (verde) */
+void activar_ws(const char *id)
+{
+	char estado[32] = "", operario[50] = "";
+
+	if (!obtener_estacion(id, estado, sizeof(estado), operario, sizeof(operario)))
+	{
+		printf("\033[0;31m[ADMIN] La estación %s no existe\033[0m\n", id);
+		return;
+	}
+	if (strcmp(estado, "OUT_OF_SERVICE") != 0)
+	{
+		printf("[ADMIN] %s no estaba bloqueada (estado actual: %s). No se cambia nada.\n", id, estado);
+		return;
+	}
+	char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'AVAILABLE', CAUDAL = 0, OPERARIO = '' WHERE ID = %Q;", id);
+	ejecutar_sql(sql);
+	sqlite3_free(sql);
+	printf("\033[0;32m[ADMIN] %s activada: AVAILABLE\033[0m\n", id);
+}
+
+/* Menú de administración de CENTRAL por teclado (solo se arranca si CENTRAL tiene terminal, docker run -it) */
+void bucle_admin()
+{
+	static char ids[MAX_ESTACIONES][50], estados[MAX_ESTACIONES][32];
+	char linea[200], orden[50], destino[50];
+	rd_kafka_t *prod = kafka_crear_productor(broker_ip, broker_puerto);
+
+	signal(SIGINT, SIG_DFL);
+	signal(SIGTERM, SIG_DFL);
+
+	printf("\033[0;36m[ADMIN] Menú de CENTRAL: iniciar <WS|todas> [seg] | bloquear <WS|todas> | activar <WS|todas> | estado | ayuda\033[0m\n");
+
+	while (fgets(linea, sizeof(linea), stdin) != NULL)
+	{
+		int seg = 0, i, n;
+		orden[0] = destino[0] = '\0';
+		if (sscanf(linea, "%49s %49s %d", orden, destino, &seg) < 1) continue;
+
+		if (strcmp(orden, "estado") == 0)
+		{
+			n = leer_estaciones(ids, estados, MAX_ESTACIONES, NULL);
+			for (i = 0; i < n; i++) printf("  %-10s %s\n", ids[i], estados[i]);
+			if (n == 0) printf("  (no hay estaciones registradas)\n");
+		}
+		else if (strcmp(orden, "ayuda") == 0)
+		{
+			printf("  iniciar <WS-01|todas> [segundos]   inicia un riego como si lo pidiera un operario\n");
+			printf("  bloquear <WS-01|todas>             corta el riego y pone la estación Fuera de Servicio\n");
+			printf("  activar <WS-01|todas>              devuelve a AVAILABLE las estaciones bloqueadas\n");
+			printf("  estado                             lista todas las estaciones con su estado\n");
+		}
+		else if ((strcmp(orden, "iniciar") == 0 || strcmp(orden, "bloquear") == 0 || strcmp(orden, "activar") == 0) && destino[0])
+		{
+			int todas = (strcmp(destino, "todas") == 0);
+			if (todas) n = leer_estaciones(ids, estados, MAX_ESTACIONES, NULL);
+			else { snprintf(ids[0], 50, "%s", destino); n = 1; }
+
+			for (i = 0; i < n; i++)
+			{
+				if (strcmp(orden, "iniciar") == 0)
+				{
+					char segundos[16];
+					snprintf(segundos, sizeof(segundos), "%d", seg);
+					printf("\033[0;36m[ADMIN] CENTRAL ordena iniciar riego en %s\033[0m\n", ids[i]);
+					tratar_peticion(prod, "CENTRAL", ids[i], segundos);
+				}
+				else if (strcmp(orden, "bloquear") == 0)
+					bloquear_ws(prod, ids[i]);
+				else
+					activar_ws(ids[i]);
+			}
+			rd_kafka_poll(prod, 200);
+			rd_kafka_flush(prod, 2000);
+		}
+		else
+		{
+			printf("  Orden no reconocida. Escribe 'ayuda'.\n");
+		}
+	}
+	exit(0);
 }
 
 /* Si una estación lleva mucho tiempo "regando" sin dar señales (Engine caído...), la liberamos */
@@ -386,6 +556,7 @@ void finalizar(int senyal)
 {
 	printf("Recibida la señal de fin (cntr-C)\n\r");
 	if (hijo_kafka > 0) kill(hijo_kafka, SIGTERM); /* paramos también el consumidor de Kafka */
+	if (hijo_admin > 0) kill(hijo_admin, SIGTERM);
 	close(s); /* cerrar para que accept termine con un error y salir del bucle principal */
 }
 
@@ -432,6 +603,17 @@ int main(int argc, char *argv[])
 	{
 		bucle_kafka();
 		exit(0);
+	}
+
+	/* Menú de administración de CENTRAL (iniciar / bloquear / activar): solo si hay teclado (docker run -it) */
+	if (isatty(STDIN_FILENO))
+	{
+		hijo_admin = fork();
+		if (hijo_admin == 0)
+		{
+			bucle_admin();
+			exit(0);
+		}
 	}
 
 	/**** Paso 1: Abrir el socket ****/
@@ -546,7 +728,7 @@ int main(int argc, char *argv[])
 					char estado_anterior[32] = "", operario[50] = "";
 					obtener_estacion(id_estacion, estado_anterior, sizeof(estado_anterior), operario, sizeof(operario));
 
-					char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'KO', CAUDAL = 0 WHERE ID = %Q;", id_estacion);
+					char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'KO', CAUDAL = 0 WHERE ID = %Q AND ESTADO <> 'OUT_OF_SERVICE';", id_estacion);
 					ejecutar_sql(sql);
 					sqlite3_free(sql);
 
@@ -578,14 +760,16 @@ int main(int argc, char *argv[])
 					}
 					else
 					{
-						actualizar_estado(id_estacion, "KO");
+						char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'KO' WHERE ID = %Q AND ESTADO <> 'OUT_OF_SERVICE';", id_estacion);
+						ejecutar_sql(sql);
+						sqlite3_free(sql);
 					}
 					sprintf(respuesta, "STATUS#OK#Estado recibido");
 				}
 				else if (strcmp(comando, "RECUPERADA") == 0)
 				{
 					printf("\033[0;32m -> La estación %s ha resuelto la avería y vuelve a estar disponible\033[0m\n\r", id_estacion);
-					char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'AVAILABLE', CAUDAL = 0, OPERARIO = '' WHERE ID = %Q;", id_estacion);
+					char *sql = sqlite3_mprintf("UPDATE ESTACIONES SET ESTADO = 'AVAILABLE', CAUDAL = 0, OPERARIO = '' WHERE ID = %Q AND ESTADO <> 'OUT_OF_SERVICE';", id_estacion);
 					ejecutar_sql(sql);
 					sqlite3_free(sql);
 					sprintf(respuesta, "STATUS#OK#Estacion disponible de nuevo");
@@ -623,6 +807,7 @@ int main(int argc, char *argv[])
 	/**** Paso 7: Cerrar el socket ****/
 	close(s);
 	if (hijo_kafka > 0) kill(hijo_kafka, SIGTERM);
+	if (hijo_admin > 0) kill(hijo_admin, SIGTERM);
 	printf("Socket cerrado\n\r");
 	return 0;
 }
