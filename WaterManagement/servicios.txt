@@ -1,0 +1,4 @@
+// Fichero de servicios de ejemplo para WM_FO. Formato: ID_WS#segundos (los segundos son opcionales)
+WS-01#10
+WS-01#5
+WS-99#5
