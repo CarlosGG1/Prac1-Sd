@@ -4,14 +4,14 @@ FROM gcc:latest
 # Instalamos SQLite y la librería de Kafka
 RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 librdkafka-dev
 
-# Copiamos nuestro código a una carpeta temporal
-COPY WM_Central.c /tmp/WM_Central.c
+# Copiamos nuestro código (y la cabecera común de Kafka) a una carpeta temporal
+COPY WM_Central.c wm_kafka.h /tmp/
 
 # Compilamos y guardamos el ejecutable enlazando SQLite y Kafka
 RUN gcc /tmp/WM_Central.c -o /bin/WM_Central -lsqlite3 -lrdkafka
 
-# Usamos /app como espacio de trabajo
+# Usamos /app como espacio de trabajo (aquí se crea central.db)
 WORKDIR /app
 
-# Al arrancar, ejecutamos el servidor
-CMD ["WM_Central", "8080"]
+# Al arrancar, ejecutamos el servidor: <puerto> <ip_broker> <puerto_broker>
+CMD ["WM_Central", "8080", "127.0.0.1", "9092"]
