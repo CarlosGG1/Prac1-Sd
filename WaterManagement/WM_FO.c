@@ -1,113 +1,208 @@
+/*
+ * WM_FO  (Field Operator: aplicación del operario)
+ *
+ * El operario pide un riego a CENTRAL (por Kafka) y va viendo los pasos del proceso: validación,
+ * autorización o denegación, caudal y volumen en tiempo real y el resumen final.
+ *
+ * Uso: WM_FO <IP_Broker> <Puerto_Broker> <ID_Operario> [fichero_servicios]
+ * Ej.: WM_FO 127.0.0.1 9092 OP-1
+ *      WM_FO 127.0.0.1 9092 OP-1 servicios.txt
+ *
+ * Fichero de servicios: una línea por riego con el formato  ID_WS#segundos  (los segundos son
+ * opcionales; por defecto 20). Las líneas vacías o que empiezan por '//' se ignoran. Ejemplo:
+ *      WS-01#10
+ *      WS-02#15
+ *      WS-01
+ * Tras la conclusión de cada servicio (éxito o fracaso) se esperan 4 segundos y se pasa al siguiente.
+ *
+ * Con el programa en marcha también se puede escribir en el teclado:
+ *      WS-01 15      pide riego en WS-01 durante 15 s (los segundos son opcionales)
+ *      f fichero     ejecuta un fichero de servicios
+ *      q             sale
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
-#include <librdkafka/rdkafka.h>
+#include <pthread.h>
+#include <time.h>
 
-static int run = 1;
+#include "wm_kafka.h"
 
-// Manejador para salir limpiamente con Ctrl + C
-static void stop(int sig) {
-    run = 0;
-    printf("\n[WM_FO] Cerrando consumidor de Kafka...\n\r");
+#define ESPERA_ENTRE_SERVICIOS 4 /* segundos entre un servicio y el siguiente (enunciado) */
+#define MARGEN_RESPUESTA 25      /* segundos extra de espera por encima de la duración del riego */
+
+char *operario;                  /* ID del operario (argumento) */
+rd_kafka_t *productor;
+rd_kafka_t *consumidor;
+volatile int terminado = 0;      /* 1 cuando CENTRAL ha concluido la petición actual (resumen o denegación) */
+
+/*
+ * Hilo que recibe los mensajes de Kafka y los muestra. Solo enseña los dirigidos a ESTE operario:
+ *   - notificaciones_fo:  operario#TIPO#texto
+ *   - eventos_ws:         RIEGO#ws#operario#caudal#volumen   (progreso en tiempo real)
+ */
+void *recibir_mensajes(void *arg)
+{
+	while (1)
+	{
+		rd_kafka_message_t *m = rd_kafka_consumer_poll(consumidor, 500);
+		if (!m) continue;
+
+		if (!m->err)
+		{
+			char buffer[512];
+			char *campos[6];
+			size_t len = m->len;
+
+			if (len >= sizeof(buffer)) len = sizeof(buffer) - 1;
+			memcpy(buffer, m->payload, len);
+			buffer[len] = '\0';
+			int n = dividir_campos(buffer, campos, 6);
+
+			if (strcmp(campos[0], "RIEGO") == 0 && n >= 5)
+			{
+				if (strcmp(campos[2], operario) == 0)
+					printf("   [%s] REGANDO  caudal %s L/min | volumen acumulado %s L\n", campos[1], campos[3], campos[4]);
+			}
+			else if (strcmp(campos[0], operario) == 0 && n >= 3)
+			{
+				const char *tipo = campos[1];
+				const char *color = "\033[0m";
+
+				if (strcmp(tipo, "OK") == 0) color = "\033[0;32m";
+				else if (strcmp(tipo, "DENEGADO") == 0) color = "\033[0;31m";
+				else if (strcmp(tipo, "RESUMEN") == 0) color = "\033[0;34m";
+
+				printf("%s[CENTRAL] %s: %s\033[0m\n", color, tipo, campos[2]);
+
+				if (strcmp(tipo, "DENEGADO") == 0 || strcmp(tipo, "RESUMEN") == 0)
+					terminado = 1; /* la petición ha concluido (con éxito o fracaso) */
+			}
+		}
+		rd_kafka_message_destroy(m);
+	}
+	return NULL;
 }
 
-int main(int argc, char *argv[]) {
-    rd_kafka_t *rk;
-    rd_kafka_conf_t *conf;
-    rd_kafka_resp_err_t err;
-    char errstr[512];
-    const char *brokers;
-    const char *topic;
-    rd_kafka_topic_partition_list_t *topics;
+/* Envía una petición de riego y espera a que CENTRAL la concluya. */
+void solicitar_riego(const char *ws, int segundos)
+{
+	char peticion[128];
+	int esperas;
 
-    if (argc != 3) {
-        fprintf(stderr, "Sintaxis: %s <IP:Puerto_Broker> <Topic>\n", argv[0]);
-        fprintf(stderr, "Ejemplo : %s 127.0.0.1:9092 alertas_agua\n", argv[0]);
-        return 1;
-    }
+	if (segundos <= 0) segundos = DURACION_POR_DEFECTO;
 
-    brokers = argv[1];
-    topic = argv[2];
+	terminado = 0;
+	snprintf(peticion, sizeof(peticion), "PETICION#%s#%s#%d", operario, ws, segundos);
+	printf("\n[FO %s] Solicitando riego en %s durante %d s...\n", operario, ws, segundos);
+	if (kafka_publicar(productor, TOPIC_PETICIONES, operario, peticion) != 0)
+	{
+		printf("[FO %s] No se pudo enviar la petición (¿Kafka caído?)\n", operario);
+		return;
+	}
 
-    printf("========================================\n\r");
-    printf("   OPERADOR DE CAMPO - CONSUMIDOR (WM_FO)\n\r");
-    printf("========================================\n\r");
+	/* Esperamos la conclusión (resumen o denegación), con un tiempo máximo por si CENTRAL no responde */
+	for (esperas = 0; esperas < (segundos + MARGEN_RESPUESTA) * 10 && !terminado; esperas++)
+		usleep(100000);
 
-    // Configuración del consumidor de Kafka
-    conf = rd_kafka_conf_new();
+	if (!terminado)
+		printf("\033[0;33m[FO %s] CENTRAL no ha concluido la petición a tiempo. Se pasa al siguiente servicio.\033[0m\n", operario);
+}
 
-    if (rd_kafka_conf_set(conf, "bootstrap.servers", brokers, errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-        fprintf(stderr, "Error config brokers: %s\n", errstr);
-        rd_kafka_conf_destroy(conf);
-        return 1;
-    }
+/* Lee un fichero de servicios y los va solicitando uno a uno */
+void ejecutar_fichero(const char *ruta)
+{
+	char linea[128], ws[64];
+	int segundos;
+	FILE *f = fopen(ruta, "r");
 
-    if (rd_kafka_conf_set(conf, "group.id", "water-management-fo-group", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-        fprintf(stderr, "Error config group.id: %s\n", errstr);
-        rd_kafka_conf_destroy(conf);
-        return 1;
-    }
+	if (!f)
+	{
+		printf("[FO %s] No se puede abrir el fichero '%s'\n", operario, ruta);
+		return;
+	}
+	printf("[FO %s] Ejecutando servicios del fichero '%s'\n", operario, ruta);
 
-    rd_kafka_conf_set(conf, "auto.offset.reset", "latest", errstr, sizeof(errstr));
+	while (fgets(linea, sizeof(linea), f) != NULL)
+	{
+		linea[strcspn(linea, "\r\n")] = '\0';
+		if (linea[0] == '\0' || strncmp(linea, "//", 2) == 0) continue;
 
-    // Crear instancia del consumidor
-    rk = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
-    if (!rk) {
-        fprintf(stderr, "Error creando consumidor en WM_FO: %s\n", errstr);
-        return 1;
-    }
+		segundos = 0;
+		if (sscanf(linea, "%63[^# \t]#%d", ws, &segundos) < 1) continue;
 
-    rd_kafka_poll_set_consumer(rk);
+		solicitar_riego(ws, segundos);
+		printf("[FO %s] Esperando %d s antes del siguiente servicio...\n", operario, ESPERA_ENTRE_SERVICIOS);
+		sleep(ESPERA_ENTRE_SERVICIOS);
+	}
+	fclose(f);
+	printf("[FO %s] Fichero '%s' terminado.\n", operario, ruta);
+}
 
-    // Suscribirse al topic de alertas
-    topics = rd_kafka_topic_partition_list_new(1);
-    rd_kafka_topic_partition_list_add(topics, topic, 0);
-    err = rd_kafka_subscribe(rk, topics);
-    rd_kafka_topic_partition_list_destroy(topics);
+int main(int argc, char *argv[])
+{
+	char *ip_broker, *puerto_broker;
+	char grupo[80], linea[128], ws[64], ruta[100];
+	int segundos;
+	pthread_t hilo;
 
-    if (err) {
-        fprintf(stderr, "Error suscribiéndose al topic %s: %s\n", topic, rd_kafka_err2str(err));
-        rd_kafka_destroy(rk);
-        return 1;
-    }
+	if (argc != 4 && argc != 5)
+	{
+		fprintf(stderr, "Sintaxis: %s <IP_Broker> <Puerto_Broker> <ID_Operario> [fichero_servicios]\n", argv[0]);
+		fprintf(stderr, "Ejemplo : %s 127.0.0.1 9092 OP-1 servicios.txt\n", argv[0]);
+		return 1;
+	}
 
-    printf("[i] Conectado al broker: %s\n\r", brokers);
-    printf("[i] Suscrito al canal: '%s'\n\r", topic);
-    printf("[i] Esperando alertas en tiempo real... (Ctrl+C para salir)\n\r\n\r");
+	ip_broker = argv[1];
+	puerto_broker = argv[2];
+	operario = argv[3];
 
-    signal(SIGINT, stop);
+	setvbuf(stdout, NULL, _IOLBF, 0);
 
-    // Bucle de escucha de Kafka
-    while (run) {
-        rd_kafka_message_t *rkmessage;
+	printf("========================================\n");
+	printf("   OPERADOR DE CAMPO (WM_FO) - %s\n", operario);
+	printf("========================================\n");
 
-        rkmessage = rd_kafka_consumer_poll(rk, 1000);
-        if (!rkmessage) continue;
+	productor = kafka_crear_productor(ip_broker, puerto_broker);
 
-        if (rkmessage->err) {
-            if (rkmessage->err == RD_KAFKA_RESP_ERR__PARTITION_EOF) {
-                rd_kafka_message_destroy(rkmessage);
-                continue;
-            }
-            fprintf(stderr, "Error en mensaje: %s\n", rd_kafka_message_errstr(rkmessage));
-            rd_kafka_message_destroy(rkmessage);
-            continue;
-        }
+	/* Grupo propio en cada ejecución: así este operario no recibe mensajes antiguos */
+	snprintf(grupo, sizeof(grupo), "wm_fo_%s_%ld_%d", operario, (long)time(NULL), (int)getpid());
+	const char *topics[] = {TOPIC_NOTIFICACIONES, TOPIC_EVENTOS};
+	consumidor = kafka_crear_consumidor(ip_broker, puerto_broker, grupo, topics, 2);
+	if (!productor || !consumidor)
+	{
+		fprintf(stderr, "[FO] No se pudo conectar con Kafka (%s:%s)\n", ip_broker, puerto_broker);
+		return 1;
+	}
+	printf("[FO %s] Conectado a Kafka (%s:%s)\n", operario, ip_broker, puerto_broker);
 
-        // Mensaje de alerta recibido con éxito desde la Central
-        printf("----------------------------------------\n\r");
-        printf("\033[0;31m[!] ALERTA RECIBIDA DESDE KAFKA\033[0m\n\r");
-        printf(" Contenido : %.*s\n\r", (int)rkmessage->len, (char *)rkmessage->payload);
-        printf("----------------------------------------\n\r");
+	pthread_create(&hilo, NULL, recibir_mensajes, NULL);
 
-        rd_kafka_message_destroy(rkmessage);
-    }
+	if (argc == 5)
+		ejecutar_fichero(argv[4]);
 
-    rd_kafka_consumer_close(rk);
-    rd_kafka_destroy(rk);
-    printf("[WM_FO] Finalizado.\n\r");
+	/* Modo interactivo */
+	printf("\nEscribe  <ID_WS> [segundos]  para pedir un riego, 'f <fichero>' para ejecutar un fichero, 'q' para salir.\n");
+	while (fgets(linea, sizeof(linea), stdin) != NULL)
+	{
+		linea[strcspn(linea, "\r\n")] = '\0';
 
-    return 0;
+		if (linea[0] == '\0') continue;
+		if (strcmp(linea, "q") == 0) break;
+
+		if (sscanf(linea, "f %99s", ruta) == 1)
+		{
+			ejecutar_fichero(ruta);
+			continue;
+		}
+
+		segundos = 0;
+		if (sscanf(linea, "%63s %d", ws, &segundos) >= 1)
+			solicitar_riego(ws, segundos);
+	}
+
+	printf("[FO %s] Fin.\n", operario);
+	return 0;
 }
