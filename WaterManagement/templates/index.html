@@ -3,194 +3,198 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WaterManagement - Panel de Control</title>
+    <title>WaterManagement - Panel de CENTRAL</title>
+    <link rel="stylesheet" href="/static/wm.css">
     <style>
-        :root {
-            --fondo: #0b1220; --panel: #121c2e; --panel2: #18253b; --borde: #24344f;
-            --texto: #e8eef7; --suave: #8ea0ba; --acento: #38bdf8;
-            --disp: #22a559; --reg: #2ee57f; --fuga: #e5484d; --fuera: #f08a24; --desc: #6b7a90;
-        }
-        * { box-sizing: border-box; }
-        body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; background: radial-gradient(1200px 600px at 10% -10%, #14305a 0%, var(--fondo) 55%); color: var(--texto); margin: 0; padding: 28px; min-height: 100vh; }
-        header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 22px; }
-        .marca { display: flex; align-items: center; gap: 14px; }
-        .gota { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #38bdf8, #22a559); display: grid; place-items: center; font-size: 24px; box-shadow: 0 6px 20px rgba(56,189,248,.35); }
-        h1 { font-size: 24px; margin: 0; font-weight: 700; letter-spacing: .2px; }
-        .subtitulo { color: var(--suave); font-size: 13px; margin-top: 2px; }
-        h2 { font-size: 16px; margin: 0 0 14px; font-weight: 600; color: var(--texto); }
-        .dashboard-container { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
-        .panel { background: linear-gradient(180deg, var(--panel2), var(--panel)); padding: 22px; border-radius: 16px; border: 1px solid var(--borde); box-shadow: 0 10px 30px rgba(0,0,0,.35); }
-        .panel-main { flex: 3; min-width: 560px; }
-        .panel-side { flex: 1; min-width: 300px; max-height: 80vh; overflow-y: auto; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 4px; }
-        th { text-align: left; color: var(--suave); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; padding: 4px 14px; }
-        td { padding: 14px; background: #0f1a2c; border-top: 1px solid var(--borde); border-bottom: 1px solid var(--borde); font-variant-numeric: tabular-nums; }
-        td:first-child { border-left: 5px solid var(--desc); border-radius: 10px 0 0 10px; font-weight: 700; }
-        td:last-child { border-right: 1px solid var(--borde); border-radius: 0 10px 10px 0; }
-        tr.f-AVAILABLE td:first-child { border-left-color: var(--disp); }
-        tr.f-WATERING td:first-child { border-left-color: var(--reg); }
-        tr.f-KO td:first-child { border-left-color: var(--fuga); }
-        tr.f-OUT_OF_SERVICE td:first-child { border-left-color: var(--fuera); }
-        tr.f-DISCONNECTED td:first-child { border-left-color: var(--desc); }
-        tr.f-WATERING td { background: #0f2a22; }
-        .num { font-size: 18px; font-weight: 600; }
-        .badge { color: #fff; padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; display: inline-block; min-width: 140px; text-align: center; letter-spacing: .02em; }
-        .st-AVAILABLE { background-color: var(--disp); }
-        .st-WATERING { background-color: var(--reg); color: #04210f; animation: parpadeo 1s infinite; }
-        .st-KO { background-color: var(--fuga); }
-        .st-OUT_OF_SERVICE { background-color: var(--fuera); }
-        .st-DISCONNECTED { background-color: var(--desc); }
-        @keyframes parpadeo { 0%, 100% { opacity: 1; box-shadow: 0 0 14px rgba(46,229,127,.7); } 50% { opacity: .35; box-shadow: none; } }
-        .resumen { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-        .chip { display: flex; align-items: center; gap: 8px; background: #0f1a2c; border: 1px solid var(--borde); border-radius: 12px; padding: 8px 12px; font-size: 13px; color: var(--suave); }
-        .chip b { font-size: 18px; color: var(--texto); }
-        .punto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-        .total { color: var(--suave); font-size: 13px; align-self: center; margin-right: 6px; }
-        .leyenda { margin-top: 16px; font-size: 12px; color: var(--suave); display: flex; gap: 14px; flex-wrap: wrap; }
-        .leyenda .badge { min-width: 0; font-size: 11px; padding: 3px 9px; animation: none; }
-        .alert-box { background: #0f1a2c; border: 1px solid var(--borde); border-left: 4px solid var(--acento); padding: 10px 12px; margin-top: 10px; border-radius: 10px; font-size: 14px; line-height: 1.4; }
-        .alert-box.mal { border-left-color: var(--fuga); background: #2a1519; }
-        .alert-box.bien { border-left-color: var(--disp); }
-        .alert-box.aviso { border-left-color: var(--fuera); }
-        .hora { color: var(--suave); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
-        #conexion { font-size: 12px; color: var(--suave); display: flex; align-items: center; gap: 8px; }
-        .vivo { width: 8px; height: 8px; border-radius: 50%; background: var(--reg); animation: parpadeo 2s infinite; }
-        .vacio { color: var(--suave); text-align: center; padding: 28px !important; }
-        @media (max-width: 700px) { .panel-main { min-width: 0; width: 100%; } body { padding: 14px; } }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .kpi { background: linear-gradient(180deg, var(--panel), #0f1a2c); border: 1px solid var(--borde); border-top: 4px solid var(--desc);
+            border-radius: 14px; padding: 12px 16px; }
+        .kpi small { color: var(--suave); font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; }
+        .kpi b { display: block; font-size: 32px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+        .kpi b span { font-size: 13px; color: var(--suave); font-weight: 500; }
+        .k-AVAILABLE { border-top-color: var(--disp); } .k-WATERING { border-top-color: var(--reg); } .k-KO { border-top-color: var(--fuga); }
+        .k-OUT_OF_SERVICE { border-top-color: var(--fuera); } .k-DISCONNECTED { border-top-color: var(--desc); } .k-agua { border-top-color: var(--acento); }
+        .layout { display: grid; grid-template-columns: 1fr 360px; gap: 18px; align-items: start; }
+        .vistas { display: flex; gap: 6px; margin-left: auto; text-transform: none; letter-spacing: 0; }
+        .vistas button { padding: 4px 12px; font-size: 12.5px; }
+        .vistas button.on { background: var(--acento); color: #04202e; border-color: var(--acento); }
+        .tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+        .est { background: #0b1424; border: 1px solid var(--borde); border-left: 6px solid var(--desc); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+        .est:hover { filter: brightness(1.15); } .est.sel { outline: 2px solid var(--acento); }
+        .est.s-AVAILABLE { border-left-color: var(--disp); } .est.s-WATERING { border-left-color: var(--reg); background: #0f2a22; }
+        .est.s-KO { border-left-color: var(--fuga); background: #2a1519; } .est.s-OUT_OF_SERVICE { border-left-color: var(--fuera); background: #2b1d0d; }
+        .est b { font-size: 18px; } .est .ub { color: var(--suave); font-size: 12.5px; margin-bottom: 8px; }
+        .est .insignia { font-size: 11.5px; padding: 4px 10px; } .est .datos { margin-top: 8px; font-size: 12.5px; color: var(--suave); font-variant-numeric: tabular-nums; min-height: 18px; }
+        #mapa { width: 100%; display: none; background: #070d18; border: 1px solid var(--borde); border-radius: 14px; }
+        #mapa text { font-family: inherit; } #mapa .nodo { cursor: pointer; }
+        .puntito { animation: parpadeo 1s infinite; }
+        .detalle h3 { font-size: 22px; } .detalle .fila2 { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--borde); font-size: 14px; }
+        .detalle .fila2 span:first-child { color: var(--suave); }
+        .acciones { display: grid; gap: 8px; margin-top: 14px; }
+        .acciones .fila { flex-wrap: nowrap; } .acciones input { width: 80px; flex: none; text-align: center; }
+        .msg { min-height: 20px; font-size: 13px; margin-top: 8px; } .msg.ok { color: #7ff0ac; } .msg.mal { color: #ff9ea2; }
+        .ev { padding: 8px 0; border-top: 1px solid var(--borde); font-size: 13.5px; display: flex; gap: 10px; }
+        .ev:first-child { border-top: 0; } .ev .h { color: #50627f; font-variant-numeric: tabular-nums; flex: none; }
+        .ev.ok { color: #7ff0ac; } .ev.mal { color: #ff8f93; } .ev.aviso { color: var(--amarillo); }
+        #eventos { max-height: 330px; overflow-y: auto; }
+        @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <header>
-        <div class="marca">
-            <div class="gota">&#128167;</div>
-            <div>
-                <h1>WaterManagement</h1>
-                <div class="subtitulo">Panel de control central &middot; red de estaciones de riego</div>
+    <div class="cabecera">
+        <div class="logo">&#128167;</div>
+        <div class="titulo"><h1>WaterManagement &middot; Panel de CENTRAL</h1><small>Estado en tiempo real de las estaciones de riego</small></div>
+        <div class="espacio"></div>
+        <span class="chip"><span class="punto" id="pCentral"></span> CENTRAL <b id="tCentral">-</b></span>
+        <span class="chip"><span class="punto" id="pBd"></span> Base de datos</span>
+        <span class="chip" id="chipAdmin">Modo lectura</span>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="layout">
+        <div>
+            <div class="tarjeta">
+                <h2>Estaciones
+                    <span class="vistas"><button id="vT" class="on">Tarjetas</button><button id="vM">Mapa</button></span></h2>
+                <div class="tarjetas" id="tarjetas"></div>
+                <svg id="mapa" viewBox="0 0 900 260"></svg>
+                <div class="leyenda" style="margin-top:14px">
+                    <span><i class="cuadrito" style="background:var(--disp)"></i>Disponible</span>
+                    <span><i class="cuadrito" style="background:var(--reg)"></i>Regando (parpadea)</span>
+                    <span><i class="cuadrito" style="background:var(--fuga)"></i>Avería (KO)</span>
+                    <span><i class="cuadrito" style="background:var(--fuera)"></i>Fuera de servicio</span>
+                    <span><i class="cuadrito" style="background:var(--desc)"></i>Desconectada</span>
+                </div>
+            </div>
+            <div class="tarjeta">
+                <h2>Sucesos</h2>
+                <div id="eventos"><div class="vacio">Sin sucesos todavía.</div></div>
             </div>
         </div>
-        <div id="conexion"></div>
-    </header>
-    <div class="dashboard-container">
-        <div class="panel panel-main">
-            <h2>Inventario de Estaciones</h2>
-            <div id="resumen" class="resumen"></div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID Estación</th>
-                        <th>Ubicación</th>
-                        <th>Estado</th>
-                        <th>Caudal (L/min)</th>
-                        <th>Volumen (L)</th>
-                        <th>Operario</th>
-                    </tr>
-                </thead>
-                <tbody id="tabla-estaciones">
-                    <tr><td colspan="6" class="vacio">Cargando...</td></tr>
-                </tbody>
-            </table>
-            <div class="leyenda">
-                <span><span class="badge st-AVAILABLE">Disponible</span> a la espera</span>
-                <span><span class="badge st-WATERING">Regando</span> parpadea</span>
-                <span><span class="badge st-KO">Fuga</span> avería detectada</span>
-                <span><span class="badge st-OUT_OF_SERVICE">Fuera de Servicio</span> bloqueada</span>
-                <span><span class="badge st-DISCONNECTED">Desconectada</span> sin conexión</span>
-            </div>
-            </div>
-        <div class="panel panel-side">
-            <h2>Consola de Alertas y Eventos</h2>
-            <div id="alertas-container">
-                <div class="alert-box"><strong>[Sistema]</strong> Panel conectado. Se actualiza cada segundo.</div>
+
+        <div>
+            <div class="tarjeta detalle" id="detalle"><h2>Detalle</h2><div class="vacio">Pulsa una estación para ver sus datos y administrarla.</div></div>
+            <div class="tarjeta" id="global">
+                <h2>Todas las estaciones</h2>
+                <div class="fila"><input type="number" id="segTodas" min="1" max="600" value="20" style="max-width:90px"><span class="suave pequeno fijo">segundos</span></div>
+                <div class="acciones">
+                    <button class="principal" data-g="iniciar">&#9654; Iniciar riego en todas las disponibles</button>
+                    <button class="aviso" data-g="bloquear">&#9940; Bloquear todas</button>
+                    <button data-g="activar">&#9989; Activar todas</button>
+                </div>
+                <div class="msg" id="msgG"></div>
             </div>
         </div>
     </div>
 
+    <script src="/static/wm.js"></script>
     <script>
-        const ETIQUETAS = {
-            AVAILABLE: "Disponible", WATERING: "Regando", KO: "Fuga",
-            OUT_OF_SERVICE: "Fuera de Servicio", DISCONNECTED: "Desconectada"
+        const NOMBRE = { AVAILABLE: "DISPONIBLE", WATERING: "REGANDO", KO: "AVERÍA (KO)", OUT_OF_SERVICE: "FUERA DE SERVICIO", DISCONNECTED: "DESCONECTADA" };
+        const COLOR = { AVAILABLE: "#22a559", WATERING: "#2ee57f", KO: "#e5484d", OUT_OF_SERVICE: "#f08a24", DISCONNECTED: "#6b7a90" };
+        let d = null, sel = null, vista = "t", admin = false;
+
+        function kpis() {
+            const r = d.resumen, h = (cl, t, v, u) => '<div class="kpi ' + cl + '"><small>' + t + "</small><b>" + v + (u ? " <span>" + u + "</span>" : "") + "</b></div>";
+            $("kpis").innerHTML = h("", "Estaciones", r.total) +
+                Object.keys(NOMBRE).map((k) => h("k-" + k, NOMBRE[k].replace(" (KO)", ""), r.estados[k] || 0)).join("") +
+                h("k-agua", "Caudal total", r.caudal, "L/min");
+        }
+
+        function tarjetas() {
+            if (!d.estaciones.length) { $("tarjetas").innerHTML = '<div class="vacio">Todavía no hay estaciones registradas.</div>'; return; }
+            $("tarjetas").innerHTML = d.estaciones.map((e) =>
+                '<div class="est s-' + e.estado + (e.id === sel ? " sel" : "") + '" data-id="' + esc(e.id) + '"><b>' + esc(e.id) + '</b><div class="ub">' + esc(e.ubicacion || "Sin ubicación") +
+                '</div><span class="insignia st-' + e.estado + '">' + NOMBRE[e.estado] + '</span><div class="datos">' +
+                (e.estado === "WATERING" ? e.caudal.toFixed(1) + " L/min &middot; " + e.volumen.toFixed(1) + " L &middot; " + esc(e.operario) : "") + "</div></div>").join("");
+        }
+
+        function mapa() {
+            const zonas = {};
+            d.estaciones.forEach((e) => (zonas[e.ubicacion || "Sin ubicación"] = zonas[e.ubicacion || "Sin ubicación"] || []).push(e));
+            const nombres = Object.keys(zonas), n = Math.max(nombres.length, 1), cols = Math.min(n, 3), filas = Math.ceil(n / cols);
+            const W = 900, H = Math.max(260, filas * 190 + 20), cw = (W - 20) / cols;
+            let s = '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#0a1626"/>';
+            s += '<path d="M0,' + (H * .7) + ' C200,' + (H * .6) + ' 300,' + (H * .85) + ' 520,' + (H * .75) + ' S800,' + (H * .6) + ' 900,' + (H * .7) + ' L900,' + H + ' L0,' + H + ' Z" fill="#0d2238" opacity=".6"/>';
+            nombres.forEach((z, i) => {
+                const x = 10 + (i % cols) * cw, y = 14 + Math.floor(i / cols) * 190, ests = zonas[z];
+                s += '<rect x="' + x + '" y="' + y + '" width="' + (cw - 14) + '" height="172" rx="16" fill="#122339" stroke="#2a4468" stroke-dasharray="6 5"/>';
+                s += '<text x="' + (x + 16) + '" y="' + (y + 28) + '" fill="#9fb4d4" font-size="15" font-weight="700">' + esc(z) + "</text>";
+                ests.forEach((e, j) => {
+                    const per = Math.max(1, Math.floor((cw - 40) / 86)), cx = x + 46 + (j % per) * 86, cy = y + 90 + Math.floor(j / per) * 66;
+                    s += '<g class="nodo" data-id="' + esc(e.id) + '"><circle cx="' + cx + '" cy="' + cy + '" r="' + (e.id === sel ? 27 : 23) + '" fill="' + COLOR[e.estado] + '"' +
+                        (e.estado === "WATERING" ? ' class="puntito"' : "") + (e.id === sel ? ' stroke="#38bdf8" stroke-width="4"' : ' stroke="#0b1220" stroke-width="3"') + "/>" +
+                        '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" font-size="13" font-weight="700" fill="' + (e.estado === "WATERING" ? "#04210f" : "#fff") + '">' + esc(e.id.replace(/^WS-?/, "")) + "</text>" +
+                        '<text x="' + cx + '" y="' + (cy + 42) + '" text-anchor="middle" font-size="10.5" fill="#8ea0ba">' + esc(e.id) + "</text></g>";
+                });
+            });
+            const m = $("mapa"); m.setAttribute("viewBox", "0 0 " + W + " " + H); m.innerHTML = s;
+        }
+
+        function detalle() {
+            const e = d && d.estaciones.find((x) => x.id === sel), c = $("detalle");
+            if (!e) { c.innerHTML = '<h2>Detalle</h2><div class="vacio">Pulsa una estación para ver sus datos y administrarla.</div>'; return; }
+            const fila = (a, b) => '<div class="fila2"><span>' + a + "</span><span>" + b + "</span></div>";
+            const lock = admin ? "" : " disabled";
+            c.innerHTML = '<h2>Detalle</h2><h3>' + esc(e.id) + '</h3><div class="suave" style="margin:2px 0 12px">' + esc(e.ubicacion || "Sin ubicación") + "</div>" +
+                '<span class="insignia st-' + e.estado + '">' + NOMBRE[e.estado] + "</span>" +
+                '<div style="margin-top:10px">' + fila("Caudal", e.estado === "WATERING" ? e.caudal.toFixed(1) + " L/min" : "-") +
+                fila("Volumen del riego", e.estado === "WATERING" ? e.volumen.toFixed(2) + " L" : "-") + fila("Operario", esc(e.operario || "-")) + "</div>" +
+                '<div class="acciones"><div class="fila"><input type="number" id="segUna" min="1" max="600" value="20"' + lock + '><button class="principal" data-a="iniciar"' + lock + '>&#9654; Iniciar riego</button></div>' +
+                '<button class="aviso" data-a="bloquear"' + lock + '>&#9940; Bloquear (fuera de servicio)</button><button data-a="activar"' + lock + '>&#9989; Activar</button></div>' +
+                '<div class="msg" id="msgU">' + (admin ? "" : "Administración desactivada: arranca el panel con ADMIN_TOKEN.") + "</div>";
+        }
+
+        function sucesos() {
+            $("eventos").innerHTML = d.eventos.length ? d.eventos.map((x) => '<div class="ev ' + x.nivel + '"><span class="h">' + esc(x.hora) + "</span><span>" + esc(x.txt) + "</span></div>").join("") : '<div class="vacio">Sin sucesos todavía.</div>';
+        }
+
+        function cabecera() {
+            const c = d.central;
+            $("pBd").className = "punto " + (c.bd ? "ok" : "mal");
+            $("pCentral").className = "punto " + (c.alcanzable === null ? "aviso" : (c.alcanzable ? "ok" : "mal"));
+            $("tCentral").textContent = c.alcanzable === null ? (c.admin ? "comprobando…" : "sin comprobar") : (c.alcanzable ? "operativa" : "no responde");
+            admin = c.admin;
+            $("chipAdmin").innerHTML = admin ? "Administración <b>activa</b>" : "Modo lectura";
+            document.querySelectorAll("#global button").forEach((b) => b.disabled = !admin);
+            $("segTodas").disabled = !admin;
+        }
+
+        function pintar() {
+            cabecera(); kpis(); sucesos();
+            if (vista === "t") tarjetas(); else mapa();
+            if (!document.activeElement || !["segUna"].includes(document.activeElement.id)) detalle();
+        }
+
+        async function sondear() {
+            const r = await api("/api/panel");
+            if (r.estaciones) { d = r; if (sel && !d.estaciones.find((x) => x.id === sel)) sel = null; pintar(); }
+            setTimeout(sondear, 1000);
+        }
+
+        function elegir(id) { sel = id; pintar(); }
+        $("tarjetas").onclick = (ev) => { const t = ev.target.closest(".est"); if (t) elegir(t.dataset.id); };
+        $("mapa").onclick = (ev) => { const t = ev.target.closest(".nodo"); if (t) elegir(t.dataset.id); };
+        function vistaA(v) {
+            vista = v; $("vT").classList.toggle("on", v === "t"); $("vM").classList.toggle("on", v === "m");
+            $("tarjetas").style.display = v === "t" ? "grid" : "none"; $("mapa").style.display = v === "m" ? "block" : "none"; if (d) pintar();
+        }
+        $("vT").onclick = () => vistaA("t"); $("vM").onclick = () => vistaA("m");
+
+        async function orden(destino, accion, segundos, salida) {
+            const r = await api("/api/admin", { destino, accion, segundos });
+            const m = $(salida); if (m) { m.className = "msg " + (r.ok ? "ok" : "mal"); m.textContent = r.ok ? r.mensaje : (r.error || "Error"); }
+        }
+        $("detalle").onclick = (ev) => {
+            const a = ev.target.closest("button[data-a]"); if (!a || !sel) return;
+            orden(sel, a.dataset.a, $("segUna") ? $("segUna").value : 20, "msgU");
         };
-        const anterior = {};   // último estado visto de cada estación, para detectar cambios
-
-        function esc(t) {
-            const d = document.createElement("div");
-            d.textContent = t === null || t === undefined ? "" : String(t);
-            return d.innerHTML;
-        }
-
-        function evento(texto, clase) {
-            const caja = document.getElementById("alertas-container");
-            const div = document.createElement("div");
-            div.className = "alert-box " + (clase || "");
-            const hora = new Date().toLocaleTimeString("es-ES");
-            div.innerHTML = '<span class="hora">' + hora + "</span>" + texto;
-            caja.insertBefore(div, caja.firstChild);
-            while (caja.children.length > 30) caja.removeChild(caja.lastChild);
-        }
-
-        function detectarCambios(estaciones) {
-            for (const e of estaciones) {
-                const antes = anterior[e.id];
-                if (antes !== undefined && antes !== e.estado) {
-                    let clase = "";
-                    if (e.estado === "KO") clase = "mal";
-                    else if (e.estado === "AVAILABLE" || e.estado === "WATERING") clase = "bien";
-                    else if (e.estado === "OUT_OF_SERVICE") clase = "aviso";
-                    let texto = "<strong>" + esc(e.id) + "</strong>: " + esc(ETIQUETAS[antes] || antes) + " &rarr; " + esc(ETIQUETAS[e.estado] || e.estado);
-                    if (e.estado === "WATERING" && e.operario) texto += " (operario " + esc(e.operario) + ")";
-                    evento(texto, clase);
-                }
-                anterior[e.id] = e.estado;
-            }
-        }
-
-        function resumen(estaciones) {
-            const cuenta = {};
-            estaciones.forEach(e => { cuenta[e.estado] = (cuenta[e.estado] || 0) + 1; });
-            const COL = { AVAILABLE: "var(--disp)", WATERING: "var(--reg)", KO: "var(--fuga)", OUT_OF_SERVICE: "var(--fuera)", DISCONNECTED: "var(--desc)" };
-            document.getElementById("resumen").innerHTML =
-                '<span class="total">' + estaciones.length + " estaciones</span>" +
-                Object.keys(ETIQUETAS).map(k =>
-                    '<span class="chip"><span class="punto" style="background:' + COL[k] + '"></span>' + ETIQUETAS[k] + " <b>" + (cuenta[k] || 0) + "</b></span>").join("");
-        }
-
-        function pintar(estaciones) {
-            resumen(estaciones);
-            const tbody = document.getElementById("tabla-estaciones");
-            if (estaciones.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="vacio">No hay estaciones registradas todavía.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = estaciones.map(e => {
-                const regando = e.estado === "WATERING";
-                return '<tr class="f-' + esc(e.estado) + '">' +
-                    "<td>" + esc(e.id) + "</td>" +
-                    "<td>" + esc(e.ubicacion) + "</td>" +
-                    '<td><span class="badge st-' + esc(e.estado) + '">' + esc(ETIQUETAS[e.estado] || e.estado) + "</span></td>" +
-                    "<td>" + (regando ? '<span class="num">' + Number(e.caudal).toFixed(1) + "</span>" : "-") + "</td>" +
-                    "<td>" + (regando ? '<span class="num">' + Number(e.volumen).toFixed(1) + "</span>" : "-") + "</td>" +
-                    "<td>" + (regando ? esc(e.operario) : "-") + "</td>" +
-                    "</tr>";
-            }).join("");
-        }
-
-        let caido = false;
-        async function actualizar() {
-            try {
-                const r = await fetch("/api/estaciones", { cache: "no-store" });
-                const datos = await r.json();
-                pintar(datos);
-                detectarCambios(datos);
-                document.getElementById("conexion").innerHTML = '<span class="vivo"></span>En vivo &middot; ' + new Date().toLocaleTimeString("es-ES");
-                caido = false;
-            } catch (err) {
-                document.getElementById("conexion").textContent = "Sin conexión con el panel...";
-                if (!caido) evento("<strong>[Sistema]</strong> Se ha perdido la conexión con el panel.", "mal");
-                caido = true;
-            }
-        }
-        actualizar();
-        setInterval(actualizar, 1000);
+        $("global").onclick = (ev) => {
+            const b = ev.target.closest("button[data-g]"); if (!b) return;
+            const acc = b.dataset.g, txt = { iniciar: "iniciar el riego en TODAS las estaciones disponibles", bloquear: "BLOQUEAR todas las estaciones", activar: "ACTIVAR todas las estaciones" }[acc];
+            if (confirm("¿Seguro que quieres " + txt + "?")) orden("todas", acc, $("segTodas").value, "msgG");
+        };
+        sondear();
     </script>
 </body>
 </html>
