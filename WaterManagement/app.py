@@ -177,8 +177,13 @@ def api_admin():
     return jsonify({"ok": ok, "mensaje": msg, "error": None if ok else msg}), (200 if ok else 502)
 
 
-if __name__ == "__main__":
+def iniciar_hilos():
+    """Arranca la lectura de la BD y el latido hacia CENTRAL (también lo usa la página única app_web.py)."""
     threading.Thread(target=vigilar_bd, daemon=True).start()
     threading.Thread(target=latido, daemon=True).start()
     evento("Panel iniciado", "info")
+
+
+if __name__ == "__main__":
+    iniciar_hilos()
     app.run(host="0.0.0.0", port=WEB_PORT, threaded=True)
