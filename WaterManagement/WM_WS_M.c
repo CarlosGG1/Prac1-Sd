@@ -169,13 +169,23 @@ void notificar_central(const char *ip, const char *puerto, const char *comando, 
 
 int main(int argc, char *argv[])
 {
-    // ... (Definición de variables) ...
+    char *puerto_monitor, *ip_central, *puerto_central, *id_ws, *ubicacion;
+    char trama[256], respuesta[256];
+    struct sockaddr_in dir_servidor, dir_cliente;
+    unsigned int long_dir_cliente;
+    int s2, n;
     // 'en_averia' es un interruptor: sirve para no mandar 100 mensajes por minuto a la Central 
     // si la válvula se rompe. Solo avisará 1 vez cuando se rompa y 1 vez cuando se arregle.
     int en_averia = 0; 
 
     // Comprueba que al encender el programa le hemos pasado todos los datos
-    if (argc != 5 && argc != 6) { /*... print error ...*/ return 1; }
+    if (argc != 5 && argc != 6)
+    {
+        fprintf(stderr, "Error. Faltan argumentos\r\n");
+        fprintf(stderr, "Sintaxis: %s <Puerto_Monitor> <IP_Central> <Puerto_Central> <ID_WS> [Ubicacion]\n\r", argv[0]);
+        fprintf(stderr, "Ejemplo : %s 5000 127.0.0.1 8080 WS-01 \"River Park\"\n\r", argv[0]);
+        return 1;
+    }
 
     puerto_monitor = argv[1];
     ip_central = argv[2];
@@ -259,6 +269,36 @@ int main(int argc, char *argv[])
 	/**** Paso 3: Esperar al Engine y monitorizarlo ****/
 
     /* Bucle de latidos: un HEARTBEAT por segundo */
+    while (1) // BUCLE EXTERIOR: espera a que se conecte el Engine (y a que vuelva si se cae)
+    {
+        printf("[Monitor] Esperando al Engine en el puerto %s...\n", puerto_monitor);
+        long_dir_cliente = sizeof(dir_cliente);
+        s2 = accept(s_escucha, (struct sockaddr *)&dir_cliente, &long_dir_cliente);
+        if (s2 == -1)
+        {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        /* Si el Engine no responde en SEGUNDOS_TIMEOUT_ENGINE, read() falla y lo tratamos como avería */
+        struct timeval tv;
+        tv.tv_sec = SEGUNDOS_TIMEOUT_ENGINE;
+        tv.tv_usec = 0;
+        setsockopt(s2, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+        printf("[Monitor] Engine conectado. Le asigno el ID %s.\n", id_ws);
+
+        /* El Engine no conoce su ID: se lo da el Monitor (el enunciado lo exige así) */
+        snprintf(trama, sizeof(trama), "ASIGNACION#%s", id_ws);
+        write(s2, trama, strlen(trama));
+        n = read(s2, respuesta, sizeof(respuesta) - 1);
+        if (n <= 0)
+        {
+            fprintf(stderr, "[Monitor] El Engine no confirmó la asignación. Cierro la conexión.\n");
+            close(s2);
+            continue;
+        }
+
         int segundos = 0;
         while (1) // BUCLE INTERNO (solo se rompe si la válvula muere)
         {
@@ -308,29 +348,6 @@ int main(int argc, char *argv[])
                 notificar_central(ip_central, puerto_central, "RECUPERADA", id_ws, "Averia resuelta");
                 en_averia = 0; // Volvemos a la normalidad
             }
-				break; /* salimos al accept para esperar a que el Engine vuelva */
-			}
-
-			respuesta[n] = '\0';
-			printf("[Monitor] Estado recibido: %s\n", respuesta);
-
-			if (strstr(respuesta, "KO") != NULL)
-			{
-				/* El Engine sigue conectado pero reporta fuga */
-				if (!en_averia)
-				{
-					printf("[Monitor] \033[0;31m[!] ALERTA: fuga detectada en %s\033[0m\n", id_ws);
-					notificar_central(ip_central, puerto_central, "ALERTA", id_ws, "Fuga detectada por sensor");
-					en_averia = 1;
-				}
-			}
-			else if (en_averia)
-			{
-				/* Engine vuelve a responder OK tras una avería: la WS vuelve a estar disponible */
-				printf("[Monitor] \033[0;32mAvería resuelta en %s\033[0m\n", id_ws);
-				notificar_central(ip_central, puerto_central, "RECUPERADA", id_ws, "Averia resuelta");
-				en_averia = 0;
-			}
 
 			/*
              * EL MENSAJE DE SUPERVIVENCIA:
