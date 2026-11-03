@@ -3,6 +3,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir flask
 COPY app.py .
 COPY templates ./templates
-ENV DB_PATH=/data/central.db
+COPY static ./static
+ENV DB_PATH=/data/central.db WEB_PORT=5000 PYTHONUNBUFFERED=1
 EXPOSE 5000
 CMD ["python", "app.py"]
