@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WaterManagement - Operario {{ operario }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='wm.css') }}">
+    <style>
+        .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
+        .kpi { background: #0b1424; border: 1px solid var(--borde); border-radius: 14px; padding: 14px 16px; }
+        .kpi small { color: var(--suave); text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; }
+        .kpi .num { font-size: 38px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+        .kpi .num span { font-size: 15px; color: var(--suave); font-weight: 500; margin-left: 4px; }
+        .barra { height: 12px; background: #0b1424; border: 1px solid var(--borde); border-radius: 999px; overflow: hidden; }
+        .barra div { height: 100%; width: 0; background: linear-gradient(90deg, #1b7fd1, var(--reg)); transition: width .3s linear; }
+        .fase { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .f-reposo { background: var(--desc); } .f-solicitando { background: var(--amarillo); color: #3a2c00; }
+        .f-finalizado { background: #2f7fe0; } .f-denegado { background: var(--fuga); }
+        .estacion-grande { font-size: 20px; font-weight: 700; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .chips button { padding: 6px 13px; border-radius: 999px; font-size: 13px; background: #0f2a22; border-color: #1c5a3d; color: #b7f5d2; }
+        .rapidos { display: flex; gap: 8px; margin-top: 8px; }
+        .rapidos button { flex: 1; padding: 6px 0; font-size: 13px; }
+        .error { color: #ff9ea2; font-size: 13px; min-height: 18px; margin-top: 8px; }
+        .res-COMPLETADO { color: #6dd3ff; font-weight: 700; } .res-DENEGADO { color: #ff7b80; font-weight: 700; }
+        .controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+        .controles select { width: auto; padding: 6px 10px; font-size: 13px; }
+        #serie { width: 100%; height: 110px; display: block; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="cabecera">
+        <div class="logo">&#128167;</div>
+        <div class="titulo"><h1>Operario de campo</h1><small>WaterManagement &middot; aplicación del operario (WM_FO)</small></div>
+        <div class="espacio"></div>
+        <span class="chip"><span class="punto" id="pFo"></span> Operario <b id="operario">{{ operario }}</b></span>
+        <span class="chip"><span class="punto" id="pKafka"></span> Kafka <b id="broker">-</b></span>
+        <button class="pequeno" id="bReiniciar" title="Vuelve a arrancar WM_FO">Reiniciar WM_FO</button>
+    </div>
+
+    <div class="avisos" id="avisos"></div>
+
+    <div class="rejilla dos">
+        <div>
+            <div class="tarjeta">
+                <h2>Solicitar riego</h2>
+                <label for="ws">Estación de riego</label>
+                <input type="text" id="ws" placeholder="WS-01" autocomplete="off" spellcheck="false">
+                <label>Estaciones disponibles <button class="pequeno" id="bListar" style="margin-left:6px">Actualizar lista</button></label>
+                <div class="chips" id="chips"><span class="vacio">Pulsa "Actualizar lista" para consultarlas a CENTRAL.</span></div>
+                <label for="seg">Duración del riego: <b id="segTxt">20 s</b></label>
+                <input type="range" id="seg" min="5" max="120" step="5" value="20">
+                <div class="rapidos">
+                    <button data-s="10">10 s</button><button data-s="20">20 s</button><button data-s="30">30 s</button><button data-s="60">60 s</button>
+                </div>
+                <div style="margin-top:16px"><button class="principal ancho" id="bRegar">&#128688; Regar</button></div>
+                <div class="error" id="error"></div>
+            </div>
+
+            <div class="tarjeta">
+                <h2>Fichero de servicios</h2>
+                <p class="suave pequeno" style="margin:0 0 8px">Una línea por servicio con el formato <code>ID_WS#segundos</code>. WM_FO los pide uno a uno y espera 4 s entre cada uno.</p>
+                <textarea id="fichero" spellcheck="false">// servicios de prueba
+WS-01#10
+WS-01#5
+WS-99#5</textarea>
+                <div style="margin-top:12px"><button class="ancho" id="bFichero">Ejecutar fichero</button></div>
+                <div class="pequeno suave" id="infoFichero" style="margin-top:8px"></div>
+            </div>
+        </div>
+
+        <div>
+            <div class="tarjeta">
+                <h2>Estado del riego</h2>
+                <div class="fase">
+                    <span class="insignia" id="fase">En reposo</span>
+                    <span class="estacion-grande" id="wsActiva"></span>
+                    <span class="suave" id="peticion"></span>
+                </div>
+                <div class="kpis">
+                    <div class="kpi"><small>Caudal</small><div class="num"><b id="caudal">0.0</b><span>L/min</span></div></div>
+                    <div class="kpi"><small>Volumen acumulado</small><div class="num"><b id="volumen">0.00</b><span>L</span></div></div>
+                    <div class="kpi"><small>Tiempo</small><div class="num"><b id="tiempo">0</b><span id="tiempoDe">s</span></div></div>
+                </div>
+                <div class="barra"><div id="progreso"></div></div>
+                <svg id="serie" preserveAspectRatio="none"></svg>
+                <div class="pequeno suave" style="margin-top:6px">Caudal de cada segundo (L/min)</div>
+                <div style="margin-top:14px" class="pequeno"><span class="suave">Último mensaje de CENTRAL:</span> <span id="mensaje">-</span></div>
+            </div>
+
+            <div class="tarjeta">
+                <h2>Mensajes <span class="espacio"></span>
+                    <select id="filtro"><option value="central">Solo CENTRAL y riego</option><option value="todo">Todo lo que imprime WM_FO</option></select>
+                </h2>
+                <div class="consola" id="consola"></div>
+            </div>
+
+            <div class="tarjeta">
+                <h2>Historial de peticiones</h2>
+                <table>
+                    <thead><tr><th>Hora</th><th>Estación</th><th>Resultado</th><th>Detalle</th></tr></thead>
+                    <tbody id="historial"><tr><td colspan="4" class="vacio">Todavía no has hecho ninguna petición.</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>window.BASE = "{{ request.script_root }}";</script>
+    <script src="{{ url_for('static', filename='wm.js') }}"></script>
+    <script>
+        let ultimo = 0, todas = [], offset = 0, e = null;
+        const TEXTO_FASE = { reposo: "En reposo", solicitando: "Solicitando…", autorizado: "Autorizado", regando: "Regando", finalizado: "Riego completado", denegado: "Denegado" };
+
+        const esCentral = (l) => /^\[CENTRAL\]|REGANDO|^\[FO|^»|^\[web\]/.test(l.txt.trim());
+        function filtroActual() { return $("filtro").value === "central" ? esCentral : null; }
+        function redibujarConsola() { $("consola").innerHTML = ""; pintarConsola($("consola"), todas, filtroActual(), false); }
+        $("filtro").onchange = redibujarConsola;
+
+        function pintarEstado() {
+            if (!e) return;
+            $("pFo").className = "punto " + (e.vivo ? "ok" : "mal");
+            $("pKafka").className = "punto " + (e.kafka ? "ok" : (e.vivo ? "aviso" : "mal"));
+            $("broker").textContent = e.broker;
+
+            const f = $("fase");
+            f.textContent = TEXTO_FASE[e.fase] || e.fase;
+            f.className = "insignia " + (e.fase === "regando" ? "st-WATERING" : "f-" + e.fase);
+            $("wsActiva").textContent = e.ws || "";
+            $("peticion").textContent = e.ws && e.segundos ? "(petición de " + e.segundos + " s)" : "";
+
+            const ahora = Date.now() / 1000 + offset;
+            const regando = e.fase === "regando";
+            $("caudal").textContent = regando ? e.caudal.toFixed(1) : "0.0";
+            $("volumen").textContent = e.volumen.toFixed(2);
+            const t = regando ? Math.min(ahora - e.inicio_riego, e.segundos + 1) : 0;
+            $("tiempo").textContent = Math.max(0, Math.floor(t));
+            $("tiempoDe").textContent = e.segundos ? "/ " + e.segundos + " s" : "s";
+            const pct = (regando && e.segundos) ? Math.min(100, 100 * t / e.segundos) : (e.fase === "finalizado" ? 100 : 0);
+            $("progreso").style.width = pct + "%";
+            dibujarSerie($("serie"), e.serie, 20, "#2ee57f");
+            $("mensaje").textContent = e.mensaje || "-";
+
+            const av = $("avisos");
+            av.textContent = e.aviso || (e.vivo ? "" : "WM_FO no está en marcha.");
+            av.classList.toggle("visible", !!av.textContent);
+
+            const libre = e.vivo && !e.ocupado;
+            $("bRegar").disabled = !libre;
+            $("bListar").disabled = !libre;
+            $("bFichero").disabled = !libre;
+            $("bRegar").textContent = e.ocupado ? "Hay una petición en curso…" : "\u{1F6BF} Regar";
+            $("infoFichero").textContent = e.fichero.activo ? "Ejecutando el fichero… cada servicio se pide cuando termina el anterior." : "";
+
+            const ch = $("chips");
+            if (e.disponibles === null) { /* aún no consultado */ }
+            else if (!e.disponibles.length) ch.innerHTML = '<span class="vacio">No hay estaciones disponibles ahora mismo.</span>';
+            else ch.innerHTML = e.disponibles.map((w) => '<button data-w="' + esc(w) + '">' + esc(w) + "</button>").join("");
+
+            const h = $("historial");
+            if (e.historial.length)
+                h.innerHTML = e.historial.map((x) => "<tr><td>" + esc(x.hora) + "</td><td>" + esc(x.ws) + '</td><td class="res-' + esc(x.resultado) + '">' +
+                    esc(x.resultado) + "</td><td>" + esc(x.texto) + "</td></tr>").join("");
+        }
+
+        async function sondear() {
+            const d = await api("/api/estado?desde=" + ultimo);
+            if (d.ultimo !== undefined) {
+                e = d;
+                offset = d.ahora - Date.now() / 1000;
+                if (d.lineas.length) { todas = todas.concat(d.lineas).slice(-600); pintarConsola($("consola"), d.lineas, filtroActual(), false); }
+                ultimo = d.ultimo;
+                pintarEstado();
+            } else {
+                $("pFo").className = "punto mal";
+            }
+            setTimeout(sondear, 700);
+        }
+
+        function mostrarError(d) { $("error").textContent = d && d.ok === false ? d.error : ""; }
+
+        $("seg").oninput = () => { $("segTxt").textContent = $("seg").value + " s"; };
+        document.querySelectorAll(".rapidos button").forEach((b) => b.onclick = () => { $("seg").value = b.dataset.s; $("seg").oninput(); });
+        $("chips").onclick = (ev) => { const w = ev.target.dataset.w; if (w) $("ws").value = w; };
+        $("bRegar").onclick = async () => mostrarError(await api("/api/regar", { ws: $("ws").value, segundos: $("seg").value }));
+        $("bListar").onclick = async () => mostrarError(await api("/api/listar", {}));
+        $("bFichero").onclick = async () => mostrarError(await api("/api/fichero", { contenido: $("fichero").value }));
+        $("bReiniciar").onclick = async () => { await api("/api/reiniciar", {}); ultimo = 0; todas = []; $("consola").innerHTML = ""; };
+        $("ws").onkeydown = (ev) => { if (ev.key === "Enter") $("bRegar").click(); };
+        setInterval(pintarEstado, 250);
+        sondear();
+    </script>
+</body>
+</html>

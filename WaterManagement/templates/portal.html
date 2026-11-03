@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WaterManagement</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='wm.css') }}">
+    <style>
+        body { padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .barra { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 22px; background: rgba(9,16,30,.92);
+            border-bottom: 1px solid var(--borde); }
+        .barra .logo { width: 38px; height: 38px; font-size: 21px; border-radius: 11px; }
+        .barra h1 { font-size: 18px; }
+        .tabs { display: flex; gap: 6px; margin-left: 14px; flex-wrap: wrap; }
+        .tabs button { background: transparent; border-color: transparent; color: var(--suave); padding: 8px 16px; border-radius: 999px; }
+        .tabs button.on { background: var(--acento); color: #04202e; }
+        .tabs button:hover:not(.on) { background: var(--panel2); color: var(--texto); }
+        .escena { flex: 1; min-height: 0; position: relative; }
+        .escena iframe { border: 0; background: var(--fondo); width: 100%; height: 100%; display: none; }
+        .escena.una iframe.on { display: block; }
+        .escena.todo { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; padding: 6px; }
+        .escena.todo iframe { display: block; border: 1px solid var(--borde); border-radius: 10px; }
+        .escena.todo iframe:first-child { grid-column: 1 / 3; }
+        .escena.todo.dos iframe:first-child { grid-column: auto; }
+        .espacio { flex: 1; }
+        a.nueva { color: var(--suave); font-size: 13px; text-decoration: none; border: 1px solid var(--borde); padding: 6px 12px; border-radius: 999px; }
+        a.nueva:hover { color: var(--texto); }
+    </style>
+</head>
+<body>
+    <div class="barra">
+        <div class="logo">&#128167;</div><h1>WaterManagement</h1>
+        <div class="tabs" id="tabs">
+            {% for id, nombre in modulos %}<button data-m="{{ id }}">{{ nombre }}</button>{% endfor %}
+            <button data-m="todo">Ver todo</button>
+        </div>
+        <div class="espacio"></div>
+        <a class="nueva" id="nueva" target="_blank" rel="noopener">Abrir en pestaña nueva &#8599;</a>
+    </div>
+    <div class="escena una" id="escena">
+        {% for id, nombre in modulos %}<iframe data-m="{{ id }}" title="{{ nombre }}" loading="lazy"></iframe>{% endfor %}
+    </div>
+    <script>
+        const MODULOS = {{ modulos|map(attribute=0)|list|tojson }};
+        const escena = document.getElementById("escena");
+        const marcos = [...escena.querySelectorAll("iframe")];
+        function cargar(f) { if (!f.src) f.src = "/" + f.dataset.m + "/"; }
+        function mostrar(m) {
+            if (m !== "todo" && !MODULOS.includes(m)) m = MODULOS[0];
+            const todo = m === "todo";
+            escena.className = "escena " + (todo ? "todo" + (MODULOS.length < 3 ? " dos" : "") : "una");
+            marcos.forEach((f) => { f.classList.toggle("on", f.dataset.m === m); if (todo || f.dataset.m === m) cargar(f); });
+            document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
+            document.getElementById("nueva").style.display = todo ? "none" : "";
+            document.getElementById("nueva").href = "/" + m + "/";
+            try { history.replaceState(null, "", "#" + m); } catch (e) {}
+        }
+        document.getElementById("tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) mostrar(b.dataset.m); };
+        mostrar(location.hash.slice(1) || MODULOS[0]);
+    </script>
+</body>
+</html>
