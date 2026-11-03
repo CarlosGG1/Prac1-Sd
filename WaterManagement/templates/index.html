@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>WaterManagement - Panel de CENTRAL</title>
-    <link rel="stylesheet" href="/static/wm.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='wm.css') }}">
     <style>
         .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
         .kpi { background: linear-gradient(180deg, var(--panel), #0f1a2c); border: 1px solid var(--borde); border-top: 4px solid var(--desc);
@@ -88,7 +88,8 @@
         </div>
     </div>
 
-    <script src="/static/wm.js"></script>
+    <script>window.BASE = "{{ request.script_root }}";</script>
+    <script src="{{ url_for('static', filename='wm.js') }}"></script>
     <script>
         const NOMBRE = { AVAILABLE: "DISPONIBLE", WATERING: "REGANDO", KO: "AVERÍA (KO)", OUT_OF_SERVICE: "FUERA DE SERVICIO", DISCONNECTED: "DESCONECTADA" };
         const COLOR = { AVAILABLE: "#22a559", WATERING: "#2ee57f", KO: "#e5484d", OUT_OF_SERVICE: "#f08a24", DISCONNECTED: "#6b7a90" };
