@@ -23,6 +23,8 @@ jobs:
             file: Dockerfile.engine
           - image: wm_fo
             file: Dockerfile.fo
+          - image: wm_panel
+            file: Dockerfile.panel
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
