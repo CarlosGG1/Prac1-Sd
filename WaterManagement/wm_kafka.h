@@ -191,7 +191,12 @@ __attribute__((unused)) static rd_kafka_t *kafka_crear_consumidor(const char *ip
     rd_kafka_conf_set(conf, "allow.auto.create.topics", "true", errstr, sizeof(errstr));
 
     rk = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
-    if (!rk) { /*... manejo de error ...*/ return NULL; }
+    if (!rk)
+    {
+        fprintf(stderr, "Error creando consumidor Kafka: %s\n", errstr);
+        rd_kafka_conf_destroy(conf);
+        return NULL;
+    }
     
     // Redirige los eventos internos a la cola principal
     rd_kafka_poll_set_consumer(rk);
@@ -203,7 +208,12 @@ __attribute__((unused)) static rd_kafka_t *kafka_crear_consumidor(const char *ip
     rd_kafka_resp_err_t err = rd_kafka_subscribe(rk, lista);
     rd_kafka_topic_partition_list_destroy(lista);
     
-    if (err) { /*... manejo de error ...*/ return NULL; }
+    if (err)
+    {
+        fprintf(stderr, "Error suscribiéndose: %s\n", rd_kafka_err2str(err));
+        rd_kafka_destroy(rk);
+        return NULL;
+    }
 
     /* ESPERA CRÍTICA: Bucle para dar tiempo a Kafka a asignarnos una conexión real */
     for (i = 0; i < 40; i++)
