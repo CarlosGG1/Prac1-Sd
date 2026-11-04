@@ -1,6 +1,6 @@
 FROM gcc:latest
 RUN apt-get update && apt-get install -y librdkafka-dev
-COPY WM_FO.c wm_kafka.h /tmp/
+COPY operario/WM_FO.c common/wm_kafka.h /tmp/
 RUN gcc /tmp/WM_FO.c -o /bin/WM_FO -lrdkafka -pthread
 WORKDIR /app
 # Uso: WM_FO <IP_Broker> <Puerto_Broker> <ID_Operario> [fichero_servicios]
