@@ -2,14 +2,14 @@
 FROM gcc:latest
 RUN apt-get update && apt-get install -y --no-install-recommends librdkafka-dev python3 python3-flask \
     && rm -rf /var/lib/apt/lists/*
-COPY WM_FO.c WM_WS_M.c WM_WS_E.c wm_kafka.h /tmp/
+COPY operario/WM_FO.c monitor/WM_WS_M.c estacion/WM_WS_E.c common/wm_kafka.h /tmp/
 RUN gcc /tmp/WM_FO.c -o /usr/local/bin/WM_FO -lrdkafka -pthread \
     && gcc /tmp/WM_WS_M.c -o /usr/local/bin/WM_WS_M -lrdkafka \
     && gcc /tmp/WM_WS_E.c -o /usr/local/bin/WM_WS_E -lrdkafka -pthread
 WORKDIR /app
-COPY skin.py app.py app_operario.py app_estacion.py app_web.py ./
-COPY templates ./templates
-COPY static ./static
+COPY web/skin.py web/app.py operario/app_operario.py estacion/app_estacion.py web/app_web.py ./
+COPY web/templates ./templates
+COPY web/static ./static
 ENV BROKER_HOST=127.0.0.1 BROKER_PORT=9092 CENTRAL_HOST=127.0.0.1 CENTRAL_PORT=8080 \
     DB_PATH=/data/central.db OPERARIO=OP-1 STATION_ID=WS-01 STATION_LOCATION="Sin ubicacion" \
     MONITOR_PORT=5000 MODULOS=central,operario,estacion WEB_PORT=8000 PYTHONUNBUFFERED=1
