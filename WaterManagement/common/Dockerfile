@@ -2,7 +2,7 @@ FROM gcc:latest
 
 RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3 librdkafka-dev
 
-COPY WM_Central.c wm_kafka.h /tmp/
+COPY central/WM_Central.c common/wm_kafka.h /tmp/
 
 RUN gcc /tmp/WM_Central.c -o /bin/WM_Central -lsqlite3 -lrdkafka
 
