@@ -77,6 +77,7 @@
                             <button class="fijo principal" id="bOk">Añadir al mapa</button>
                             <button class="fijo" id="bNo">Cancelar</button>
                         </div>
+                        <label class="suave pequeno" style="display:flex;gap:8px;align-items:center;margin:10px 0 0;cursor:pointer"><input type="checkbox" id="nReg" style="width:auto"> Registrarla también en CENTRAL ahora (si no, queda solo en el mapa)</label>
                         <div class="msg" id="msgMapa"></div>
                     </div>
                 </div>
@@ -262,7 +263,10 @@
             const l = puntoLibre(cx, cy, pos);
             const r = await api("/api/layout/estacion", { id, ubicacion: ub, x: l.x, y: l.y });
             if (!r.ok) { mensajeMapa(r.error || "No se pudo añadir.", false); return; }
-            $("nId").value = ""; mensajeMapa(id + " añadida. Arrástrala hasta su sitio.", true); sel = id;
+            let txt = id + " añadida. Arrástrala hasta su sitio.";
+            if ($("nReg").checked) { const g = await api("/api/registrar", { id, ubicacion: ub }); txt = g.ok ? g.mensaje : id + " añadida al mapa, pero no se pudo registrar: " + (g.error || "error"); mensajeMapa(txt, !!g.ok); }
+            else mensajeMapa(txt, true);
+            $("nId").value = ""; sel = id;
             const nuevo = await api("/api/panel"); if (nuevo.estaciones) { d = nuevo; pintar(); }
         };
         $("nUb").onkeydown = $("nId").onkeydown = (ev) => { if (ev.key === "Enter") $("bOk").click(); };
@@ -285,7 +289,7 @@
                 '<div class="acciones"><div class="fila"><input type="number" id="segUna" min="1" max="600" value="20"' + lock + '><button class="principal" data-a="iniciar"' + lock + '>&#9654; Iniciar riego</button></div>' +
                 '<button class="aviso" data-a="bloquear"' + lock + '>&#9940; Bloquear (fuera de servicio)</button><button data-a="activar"' + lock + '>&#9989; Activar</button></div>' +
                 (e.registrada === false ? '<div class="suave pequeno" style="margin-top:12px">Añadida desde el panel. Pasará a estar disponible cuando un Monitor se registre en CENTRAL con el ID <b>' + esc(e.id) + '</b>.</div>' +
-                    '<button class="pequeno" data-q="1" style="margin-top:8px">Quitar del mapa</button>' : "") +
+                    '<div class="fila" style="margin-top:8px"><button class="pequeno principal fijo" data-r="1">Registrar en CENTRAL</button><button class="pequeno fijo" data-q="1">Quitar del mapa</button></div>' : "") +
                 '<div class="msg" id="msgU">' + (admin ? "" : "Administración desactivada: arranca el panel con ADMIN_TOKEN.") + "</div>";
         }
 
@@ -329,6 +333,12 @@
             const m = $(salida); if (m) { m.className = "msg " + (r.ok ? "ok" : "mal"); m.textContent = r.ok ? r.mensaje : (r.error || "Error"); }
         }
         $("detalle").onclick = async (ev) => {
+            if (ev.target.closest("button[data-r]") && sel) {
+                const e = d.estaciones.find((x) => x.id === sel); if (!e) return;
+                const r = await api("/api/registrar", { id: e.id, ubicacion: e.ubicacion }), m = $("msgU");
+                if (m) { m.className = "msg " + (r.ok ? "ok" : "mal"); m.textContent = r.ok ? r.mensaje : (r.error || "Error"); }
+                return;
+            }
             if (ev.target.closest("button[data-q]") && sel) {
                 if (!confirm("¿Quitar " + sel + " del mapa?")) return;
                 const r = await api("/api/layout/quitar", { id: sel }); const m = $("msgU");
