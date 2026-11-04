@@ -36,6 +36,10 @@
 /* Constante vital: si en 15 segundos un parque no da señales, se cancela su riego */
 #define SEGUNDOS_SIN_NOTICIAS 15 
 
+/* Si el Monitor de una estación no da señales de vida (ESTADO/ALERTA/RECUPERADA) en 15 segundos,
+ * se considera caído y la estación pasa a DISCONNECTED (gris). El Monitor manda ESTADO cada 5 s. */
+#define SEGUNDOS_SIN_LATIDO 15
+
 char *broker_ip;     /* IP de Kafka, se rellena al arrancar el programa */
 char *broker_puerto; /* Puerto de Kafka */
 
@@ -214,6 +218,7 @@ void inicializar_bd()
     ejecutar_sql_conf("ALTER TABLE ESTACIONES ADD COLUMN VOLUMEN REAL DEFAULT 0;", 1);
     ejecutar_sql_conf("ALTER TABLE ESTACIONES ADD COLUMN OPERARIO TEXT DEFAULT '';", 1);
     ejecutar_sql_conf("ALTER TABLE ESTACIONES ADD COLUMN ULTIMA_ACT INTEGER DEFAULT 0;", 1);
+    ejecutar_sql_conf("ALTER TABLE ESTACIONES ADD COLUMN ULTIMO_LATIDO INTEGER DEFAULT 0;", 1);
 
     // 3. MEDIDA DE RESILIENCIA AL REINICIAR (Súper importante para la nota de la defensa)
     // Pone a todas las estaciones en gris (DISCONNECTED) excepto a las que ya estaban rotas del todo (OUT_OF_SERVICE).
@@ -768,6 +773,16 @@ void vigilar_estaciones()
         printf("\033[0;33m[VIGILANTE] Una estación llevaba más de %d s regando sin noticias: liberada.\033[0m\n", SEGUNDOS_SIN_NOTICIAS);
         
     sqlite3_free(sql);
+
+    // Segunda vigilancia: ¿algún Monitor ha dejado de dar señales de vida? Entonces su estación pasa a DISCONNECTED.
+    // No se toca una estación que esté regando (el riego termina solo) ni una bloqueada por el administrador.
+    sql = sqlite3_mprintf(
+        "UPDATE ESTACIONES SET ESTADO = 'DISCONNECTED', CAUDAL = 0, OPERARIO = '' "
+        "WHERE ESTADO NOT IN ('DISCONNECTED', 'OUT_OF_SERVICE', 'WATERING') AND ULTIMO_LATIDO < %ld;",
+        (long)time(NULL) - SEGUNDOS_SIN_LATIDO);
+    if (ejecutar_sql(sql) > 0)
+        printf("\033[0;33m[VIGILANTE] Monitor sin señales de vida desde hace más de %d s: estación DESCONECTADA.\033[0m\n", SEGUNDOS_SIN_LATIDO);
+    sqlite3_free(sql);
 }
 
 
@@ -998,12 +1013,20 @@ int main(int argc, char *argv[])
 
 			if (sscanf(mensaje, "%49[^#]#%49[^#]#%99[^\n]", comando, id_estacion, ubicacion) == 3)
 			{
+				/* Cualquier mensaje del Monitor cuenta como señal de vida (lo vigila vigilar_estaciones) */
+				if (strcmp(comando, "ESTADO") == 0 || strcmp(comando, "ALERTA") == 0 || strcmp(comando, "RECUPERADA") == 0)
+				{
+					char *sql_vida = sqlite3_mprintf("UPDATE ESTACIONES SET ULTIMO_LATIDO = %ld WHERE ID = %Q;", (long)time(NULL), id_estacion);
+					ejecutar_sql(sql_vida);
+					sqlite3_free(sql_vida);
+				}
+
 				if (strcmp(comando, "REGISTRO") == 0)
 				{
 					printf(" -> Registro/autenticación de la estación %s (%s)\n\r", id_estacion, ubicacion);
 
 					// REPLACE por si la estación se reinicia y vuelve a registrarse
-					char *sql = sqlite3_mprintf("REPLACE INTO ESTACIONES (ID, UBICACION, ESTADO) VALUES (%Q, %Q, 'AVAILABLE');", id_estacion, ubicacion);
+					char *sql = sqlite3_mprintf("REPLACE INTO ESTACIONES (ID, UBICACION, ESTADO, ULTIMO_LATIDO) VALUES (%Q, %Q, 'AVAILABLE', %ld);", id_estacion, ubicacion, (long)time(NULL));
 					if (ejecutar_sql(sql) >= 0)
 					{
 						printf("\033[0;32m -> Registro guardado en central.db\033[0m\n");
