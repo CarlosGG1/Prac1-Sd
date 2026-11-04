@@ -268,17 +268,36 @@ int main(int argc, char *argv[])
 
 	/**** Paso 3: Esperar al Engine y monitorizarlo ****/
 
+    /* Mientras espera al Engine, accept() se despierta cada 5 s para seguir dando señales de vida a CENTRAL.
+     * Sin esto, CENTRAL creería que el Monitor ha caído (DISCONNECTED) en vez de ver la estación averiada (KO). */
+    struct timeval tv_espera;
+    tv_espera.tv_sec = 5;
+    tv_espera.tv_usec = 0;
+    setsockopt(s_escucha, SOL_SOCKET, SO_RCVTIMEO, &tv_espera, sizeof(tv_espera));
+    int aviso_espera = 0;
+
     /* Bucle de latidos: un HEARTBEAT por segundo */
     while (1) // BUCLE EXTERIOR: espera a que se conecte el Engine (y a que vuelva si se cae)
     {
-        printf("[Monitor] Esperando al Engine en el puerto %s...\n", puerto_monitor);
+        if (!aviso_espera)
+        {
+            printf("[Monitor] Esperando al Engine en el puerto %s...\n", puerto_monitor);
+            aviso_espera = 1;
+        }
         long_dir_cliente = sizeof(dir_cliente);
         s2 = accept(s_escucha, (struct sockaddr *)&dir_cliente, &long_dir_cliente);
         if (s2 == -1)
         {
             if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                /* Nadie se ha conectado en 5 s: el Monitor sigue vivo y lo dice (KO si el Engine se había caído) */
+                notificar_central(ip_central, puerto_central, "ESTADO", id_ws, en_averia ? "KO" : "OK");
+                continue;
+            }
             break;
         }
+        aviso_espera = 0;
 
         /* Si el Engine no responde en SEGUNDOS_TIMEOUT_ENGINE, read() falla y lo tratamos como avería */
         struct timeval tv;
