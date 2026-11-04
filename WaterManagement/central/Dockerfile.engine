@@ -1,6 +1,6 @@
 FROM gcc:latest
 RUN apt-get update && apt-get install -y librdkafka-dev
-COPY WM_WS_E.c wm_kafka.h /tmp/
+COPY estacion/WM_WS_E.c common/wm_kafka.h /tmp/
 RUN gcc /tmp/WM_WS_E.c -o /bin/WM_WS_E -lrdkafka -pthread
 WORKDIR /app
 # Uso: WM_WS_E <IP_Broker> <Puerto_Broker> <IP_Monitor> <Puerto_Monitor>
