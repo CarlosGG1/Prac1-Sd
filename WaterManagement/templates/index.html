@@ -136,6 +136,41 @@
         const MW = 900, MH = 560, pendientes = {};   // pendientes: posiciones soltadas que el servidor aún no ha confirmado
         let arrastre = null;
 
+        /* ---------- Fondo del mapa: ilustración de un parque (se genera una sola vez, siempre igual) ---------- */
+        const FONDO = (function () {
+            const caminos = ["M-10,430 C170,330 330,510 520,390 S790,300 910,350", "M470,-10 C420,140 540,240 520,390 S600,520 650,570"];
+            const muestras = [];   // puntos de los caminos para no plantar árboles encima
+            const bez = (a, b, c, d, t) => (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t * t * c + t ** 3 * d;
+            [[[-10, 430], [170, 330], [330, 510], [520, 390]], [[520, 390], [710, 270], [790, 300], [910, 350]], [[470, -10], [420, 140], [540, 240], [520, 390]], [[520, 390], [500, 540], [600, 520], [650, 570]]]
+                .forEach((q) => { for (let t = 0; t <= 1; t += .04) muestras.push([bez(q[0][0], q[1][0], q[2][0], q[3][0], t), bez(q[0][1], q[1][1], q[2][1], q[3][1], t)]); });
+            let semilla = 7; const rnd = () => (semilla = (semilla * 16807) % 2147483647) / 2147483647;
+            let h = '<defs><radialGradient id="cesped" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#2c6b3f"/><stop offset="1" stop-color="#17432a"/></radialGradient>' +
+                '<radialGradient id="agua" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#58b7e6"/><stop offset="1" stop-color="#2273ad"/></radialGradient></defs>' +
+                '<rect width="900" height="560" fill="url(#cesped)"/>';
+            for (let i = 0; i < 26; i++) h += '<ellipse cx="' + (rnd() * 900).toFixed(0) + '" cy="' + (rnd() * 560).toFixed(0) + '" rx="' + (40 + rnd() * 70).toFixed(0) + '" ry="' + (20 + rnd() * 35).toFixed(0) + '" fill="#3a8650" opacity=".16"/>';
+            // estanque con orilla
+            h += '<ellipse cx="715" cy="135" rx="124" ry="70" fill="#d9cfa0" opacity=".55"/><ellipse cx="715" cy="135" rx="112" ry="60" fill="url(#agua)"/>' +
+                '<path d="M650,130 q22,-10 44,0 M735,150 q22,-10 44,0 M690,110 q16,-8 32,0" stroke="#bfe6f7" stroke-width="2" fill="none" opacity=".7"/>';
+            // caminos de tierra (borde + centro)
+            caminos.forEach((c) => h += '<path d="' + c + '" fill="none" stroke="#9c8a5a" stroke-width="30" stroke-linecap="round"/><path d="' + c + '" fill="none" stroke="#d8c898" stroke-width="22" stroke-linecap="round"/>');
+            // parterres de flores
+            [[140, 120, "#e86a8a"], [300, 90, "#f5c542"], [120, 300, "#b58cf0"], [820, 470, "#e86a8a"], [300, 520, "#f5c542"]].forEach((f) => {
+                h += '<ellipse cx="' + f[0] + '" cy="' + f[1] + '" rx="34" ry="20" fill="#2f7a47"/>';
+                for (let i = 0; i < 9; i++) h += '<circle cx="' + (f[0] + (rnd() - .5) * 56).toFixed(0) + '" cy="' + (f[1] + (rnd() - .5) * 28).toFixed(0) + '" r="3" fill="' + f[2] + '"/>';
+            });
+            // árboles
+            let puestos = 0, intentos = 0;
+            while (puestos < 60 && intentos++ < 2000) {
+                const x = rnd() * 900, y = rnd() * 560, r = 11 + rnd() * 9;
+                if (Math.hypot((x - 715) / 150, (y - 135) / 92) < 1) continue;                // no en el estanque
+                if (muestras.some((m) => Math.hypot(m[0] - x, m[1] - y) < 34 + r)) continue;    // ni sobre los caminos
+                h += '<ellipse cx="' + (x + 4).toFixed(0) + '" cy="' + (y + r * .8).toFixed(0) + '" rx="' + r.toFixed(0) + '" ry="' + (r * .45).toFixed(0) + '" fill="#000" opacity=".22"/>' +
+                    '<circle cx="' + x.toFixed(0) + '" cy="' + y.toFixed(0) + '" r="' + r.toFixed(0) + '" fill="#14532d"/><circle cx="' + (x - r * .25).toFixed(0) + '" cy="' + (y - r * .3).toFixed(0) + '" r="' + (r * .65).toFixed(0) + '" fill="#2d8a4e" opacity=".85"/>';
+                puestos++;
+            }
+            return h;
+        })();
+
         function zonasDe() {
             const z = {};
             d.estaciones.forEach((e) => (z[e.ubicacion || "Sin ubicación"] = z[e.ubicacion || "Sin ubicación"] || []).push(e));
@@ -165,24 +200,23 @@
 
         function mapa() {
             const pos = posiciones(), z = zonasDe();
-            let s = '<defs><pattern id="rej" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#10213a" stroke-width="1"/></pattern></defs>' +
-                '<rect width="' + MW + '" height="' + MH + '" fill="#0a1626"/><rect width="' + MW + '" height="' + MH + '" fill="url(#rej)"/>';
+            let s = FONDO;
             // zonas: una mancha alrededor de las estaciones de cada ubicación
             Object.keys(z).sort().forEach((nom) => {
                 const ps = z[nom].map((e) => pos[e.id]), xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
                 const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
                 const rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 85, ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 70;
-                s += '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="#1f4d36" fill-opacity=".28" stroke="#2f7a52" stroke-opacity=".55"/>' +
-                    '<text x="' + cx + '" y="' + (cy - ry + 20) + '" text-anchor="middle" fill="#7f9bbd" font-size="11.5" letter-spacing="1.5">' + esc(nom.toUpperCase()) + "</text>";
+                s += '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="#ffffff" fill-opacity=".07" stroke="#ffffff" stroke-opacity=".55" stroke-dasharray="6 5"/>' +
+                    '<text x="' + cx + '" y="' + (cy - ry + 20) + '" text-anchor="middle" fill="#fff" font-size="12" font-weight="700" letter-spacing="1.5" paint-order="stroke" stroke="#0b1d12" stroke-width="3.5">' + esc(nom.toUpperCase()) + "</text>";
             });
             d.estaciones.forEach((e) => {
                 const p = pos[e.id], on = e.id === sel, reg = e.estado === "WATERING";
                 s += '<g class="nodo' + (arrastre && arrastre.id === e.id ? " arrastrando" : "") + '" data-id="' + esc(e.id) + '">' +
                     (reg ? '<circle cx="' + p.x + '" cy="' + p.y + '" r="22" fill="none" stroke="' + COLOR.WATERING + '" stroke-opacity=".5" class="puntito"/>' : "") +
-                    '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + (on ? 11 : 9) + '" fill="' + COLOR[e.estado] + '" stroke="' + (on ? "#38bdf8" : "#0b1220") + '" stroke-width="' + (on ? 3 : 2) + '"' + (reg ? ' class="puntito"' : "") + "/>" +
+                    '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + (on ? 12 : 10) + '" fill="' + COLOR[e.estado] + '" stroke="' + (on ? "#38bdf8" : "#fff") + '" stroke-width="' + (on ? 3.5 : 2.5) + '"' + (reg ? ' class="puntito"' : "") + "/>" +
                     '<circle cx="' + p.x + '" cy="' + p.y + '" r="26" fill="transparent"/>' +   // zona de agarre más grande
-                    '<text x="' + (p.x + 16) + '" y="' + (p.y + 4) + '" font-size="11.5" fill="#cfe0f5" font-weight="600">' + esc(e.id) +
-                    (reg ? ' <tspan fill="#8ea0ba" font-weight="400">&#183; regando</tspan>' : (e.registrada === false ? ' <tspan fill="#8ea0ba" font-weight="400">&#183; sin registrar</tspan>' : "")) + "</text></g>";
+                    '<text x="' + (p.x + 16) + '" y="' + (p.y + 4) + '" font-size="12" fill="#fff" font-weight="700" paint-order="stroke" stroke="#0b1d12" stroke-width="3.5">' + esc(e.id) +
+                    (reg ? ' <tspan fill="#d6f5e0" font-weight="500">&#183; regando</tspan>' : (e.registrada === false ? ' <tspan fill="#e4e9f2" font-weight="500">&#183; sin registrar</tspan>' : "")) + "</text></g>";
             });
             $("mapa").innerHTML = s;
             $("listaUb").innerHTML = Object.keys(z).sort().map((n) => '<option value="' + esc(n) + '">').join("");
