@@ -16,14 +16,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { image: wm_central,         file: Dockerfile }
-          - { image: wm_monitor,         file: Dockerfile.monitor }
-          - { image: wm_engine,          file: Dockerfile.engine }
-          - { image: wm_fo,              file: Dockerfile.fo }
-          - { image: wm_panel,           file: Dockerfile.panel }
-          - { image: wm_operario_web,    file: Dockerfile.operario }
-          - { image: wm_estacion_web,    file: Dockerfile.estacion }
-          - { image: wm_web,             file: Dockerfile.web }
+          - { image: wm_central,         file: common/Dockerfile }
+          - { image: wm_monitor,         file: monitor/Dockerfile.monitor }
+          - { image: wm_engine,          file: central/Dockerfile.engine }
+          - { image: wm_fo,              file: operario/Dockerfile.fo }
+          - { image: wm_panel,           file: monitor/Dockerfile.panel }
+          - { image: wm_operario_web,    file: operario/Dockerfile.operario }
+          - { image: wm_estacion_web,    file: estacion/Dockerfile.estacion }
+          - { image: wm_web,             file: web/Dockerfile.web }
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
