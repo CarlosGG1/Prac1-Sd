@@ -31,6 +31,8 @@
  * por eso aquí NO usamos fork(): un proceso hijo tendría su propia copia y no vería los cambios).
  */
 volatile int estado_salud = 1;        /* 1 = OK, 0 = KO (fuga) */
+volatile int monitor_ok = 0;          /* 1 = conectado con su Monitor; 0 = sin Monitor: la estación está AVERIADA */
+volatile int monitor_perdido = 0;     /* 1 si el Monitor estaba conectado y se ha caído (para avisar al recuperarlo) */
 volatile int pedir_riego_manual = 0;  /* el teclado pide iniciar un riego desde la propia estación */
 volatile int pedir_fin_manual = 0;    /* el teclado pide finalizar el riego en curso */
 
@@ -129,6 +131,12 @@ void *atender_monitor(void *arg)
 			continue;
 		}
 		printf("[Engine] Conectado con el Monitor (%s:%s).\n", ip_monitor, puerto_monitor);
+		monitor_ok = 1;
+		if (monitor_perdido)
+		{
+			monitor_perdido = 0;
+			printf("[Engine] \033[0;32mMonitor recuperado: la estación vuelve a admitir riegos.\033[0m\n");
+		}
 
 		while ((n = read(s, mensaje, sizeof(mensaje) - 1)) > 0)
 		{
@@ -156,6 +164,9 @@ void *atender_monitor(void *arg)
 		}
 
 		printf("[Engine] Conexión con el Monitor perdida.\n");
+		monitor_ok = 0;
+		monitor_perdido = 1;
+		printf("[Engine] \033[0;31mESTACIÓN AVERIADA: sin Monitor no se admiten nuevos riegos (un riego en curso termina).\033[0m\n");
 		close(s);
 		sleep(2);
 	}
@@ -209,6 +220,12 @@ void procesar_orden(const char *payload, size_t len, const char *mi_id)
 			snprintf(evento, sizeof(evento), "FIN#%s#%s#0#0#RECHAZADO_FUGA", mi_id, campos[2]);
 			publicar_evento(mi_id, evento);
 			printf("[Engine] Orden ABRIR rechazada: hay una fuga.\n");
+		}
+		else if (!monitor_ok)
+		{
+			snprintf(evento, sizeof(evento), "FIN#%s#%s#0#0#RECHAZADO_AVERIADA", mi_id, campos[2]);
+			publicar_evento(mi_id, evento);
+			printf("[Engine] \033[0;31mOrden ABRIR rechazada: estación AVERIADA (sin Monitor).\033[0m\n");
 		}
 		else
 		{
@@ -296,6 +313,10 @@ int main(int argc, char *argv[])
 			if (mi_id[0] == '\0')
 			{
 				printf("[Engine] Aún no tengo ID (el Monitor no se ha conectado).\n");
+			}
+			else if (!monitor_ok)
+			{
+				printf("[Engine] \033[0;31mESTACIÓN AVERIADA: sin Monitor no se admiten riegos, ni siquiera manuales.\033[0m\n");
 			}
 			else
 			{
