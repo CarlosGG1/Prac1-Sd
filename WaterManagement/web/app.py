@@ -130,6 +130,30 @@ def enviar_a_central(destino, accion, segundos=0):
     return False, "Respuesta inesperada de CENTRAL: %s" % r[:80]
 
 
+def registrar_en_central(ident, ubicacion):
+    """Registra una estación en CENTRAL con la misma trama que usa un Monitor (REGISTRO#ID#ubicación).
+    CENTRAL la guarda en su BD como AVAILABLE; si hay ADMIN_TOKEN se bloquea después (fuera de servicio) para que
+    nadie pueda mandarle riegos mientras no tenga un Monitor/Engine real. Cuando el Monitor se registre con ese ID,
+    CENTRAL la vuelve a dejar disponible. Devuelve (ok, texto)."""
+    try:
+        sk = socket.create_connection((CENTRAL_HOST, CENTRAL_PORT), timeout=8)
+        sk.settimeout(15)
+        sk.sendall(("REGISTRO#%s#%s" % (ident, ubicacion)).encode())
+        r = sk.recv(1024).decode("utf-8", "replace").strip()
+        sk.close()
+    except OSError as ex:
+        return False, "No se puede contactar con CENTRAL (%s:%s): %s" % (CENTRAL_HOST, CENTRAL_PORT, ex)
+    partes = r.split("#", 2)
+    if not (len(partes) == 3 and partes[0] == "STATUS" and partes[1] == "OK"):
+        return False, "CENTRAL no ha registrado la estación: %s" % (partes[2] if len(partes) == 3 else r[:80])
+    if ADMIN_TOKEN:
+        ok, msg = enviar_a_central(ident, "bloquear")
+        if ok:
+            return True, "%s registrada en CENTRAL. Queda fuera de servicio hasta que se conecte su Monitor." % ident
+        return True, "%s registrada en CENTRAL, pero no se pudo bloquear (%s). Queda disponible." % (ident, msg)
+    return True, "%s registrada en CENTRAL (disponible). Sin ADMIN_TOKEN no se puede dejar bloqueada." % ident
+
+
 def latido():
     """Cada 30 s comprueba que la CENTRAL contesta (solo si hay token)."""
     while True:
@@ -240,6 +264,25 @@ def _fallo(msg, codigo=400):
 
 def _guardado():
     return jsonify({"ok": True}) if guardar_layout() else _fallo("No se pudo guardar el mapa en el servidor.", 500)
+
+
+@app.route("/api/registrar", methods=["POST"])
+def api_registrar():
+    """Registra en CENTRAL una estación (por ejemplo una añadida antes al mapa) desde la interfaz."""
+    d = _datos()
+    i, ub = str(d.get("id", "")).strip(), re.sub(r"[#\r\n]+", " ", str(d.get("ubicacion", ""))).strip()[:60]
+    if not ID_VALIDO.fullmatch(i):
+        return _fallo("ID no válido.")
+    if not ub:
+        return _fallo("Indica la ubicación de la estación.")
+    with cerrojo:
+        ya = next((e for e in estaciones if e["id"] == i), None)
+    if ya is not None:
+        return _fallo("%s ya está registrada en CENTRAL." % i)
+    ok, msg = registrar_en_central(i, ub)
+    with cerrojo:
+        evento("Registro de %s (%s) en CENTRAL: %s" % (i, ub, msg), "ok" if ok else "mal")
+    return jsonify({"ok": ok, "mensaje": msg, "error": None if ok else msg}), (200 if ok else 502)
 
 
 @app.route("/api/layout/pos", methods=["POST"])
