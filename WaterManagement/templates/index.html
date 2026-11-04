@@ -25,8 +25,13 @@
         .est.s-KO { border-left-color: var(--fuga); background: #2a1519; } .est.s-OUT_OF_SERVICE { border-left-color: var(--fuera); background: #2b1d0d; }
         .est b { font-size: 18px; } .est .ub { color: var(--suave); font-size: 12.5px; margin-bottom: 8px; }
         .est .insignia { font-size: 11.5px; padding: 4px 10px; } .est .datos { margin-top: 8px; font-size: 12.5px; color: var(--suave); font-variant-numeric: tabular-nums; min-height: 18px; }
-        #mapa { width: 100%; display: none; background: #070d18; border: 1px solid var(--borde); border-radius: 14px; }
-        #mapa text { font-family: inherit; } #mapa .nodo { cursor: pointer; }
+        #mapa { width: 100%; display: none; background: #070d18; border: 1px solid var(--borde); border-radius: 14px; user-select: none; -webkit-user-select: none; }
+        #mapa text { font-family: inherit; pointer-events: none; } #mapa .nodo { cursor: grab; touch-action: none; } #mapa .nodo.arrastrando { cursor: grabbing; }
+        #barraMapa { display: none; margin-bottom: 10px; }
+        #barraMapa .fila { gap: 8px; } #barraMapa .ayuda { color: var(--suave); font-size: 12.5px; flex: 1 1 220px; }
+        #formAnadir { display: none; margin-top: 10px; padding: 12px; border: 1px solid var(--borde); border-radius: 12px; background: #0b1424; }
+        #formAnadir .fila > * { flex: 1 1 140px; } #formAnadir input { padding: 8px 10px; font-size: 14px; }
+        .est .sin { font-size: 11px; color: var(--amarillo); margin-left: 6px; }
         .puntito { animation: parpadeo 1s infinite; }
         .detalle h3 { font-size: 22px; } .detalle .fila2 { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--borde); font-size: 14px; }
         .detalle .fila2 span:first-child { color: var(--suave); }
@@ -58,7 +63,24 @@
                 <h2>Estaciones
                     <span class="vistas"><button id="vT" class="on">Tarjetas</button><button id="vM">Mapa</button></span></h2>
                 <div class="tarjetas" id="tarjetas"></div>
-                <svg id="mapa" viewBox="0 0 900 260"></svg>
+                <div id="barraMapa">
+                    <div class="fila">
+                        <span class="ayuda">Arrastra las estaciones para colocarlas en el mapa; la posición se guarda.</span>
+                        <button class="fijo pequeno principal" id="bAnadir">&#43; Añadir estación</button>
+                        <button class="fijo pequeno" id="bReset" title="Vuelve a la colocación automática por ubicación">Restablecer posiciones</button>
+                    </div>
+                    <div id="formAnadir">
+                        <div class="fila">
+                            <input type="text" id="nId" placeholder="ID (ej. WS-05)" maxlength="30" autocomplete="off">
+                            <input type="text" id="nUb" placeholder="Ubicación (ej. River Park)" maxlength="60" list="listaUb" autocomplete="off">
+                            <datalist id="listaUb"></datalist>
+                            <button class="fijo principal" id="bOk">Añadir al mapa</button>
+                            <button class="fijo" id="bNo">Cancelar</button>
+                        </div>
+                        <div class="msg" id="msgMapa"></div>
+                    </div>
+                </div>
+                <svg id="mapa" viewBox="0 0 900 560"></svg>
                 <div class="leyenda" style="margin-top:14px">
                     <span><i class="cuadrito" style="background:var(--disp)"></i>Disponible</span>
                     <span><i class="cuadrito" style="background:var(--reg)"></i>Regando (parpadea)</span>
@@ -105,32 +127,117 @@
         function tarjetas() {
             if (!d.estaciones.length) { $("tarjetas").innerHTML = '<div class="vacio">Todavía no hay estaciones registradas.</div>'; return; }
             $("tarjetas").innerHTML = d.estaciones.map((e) =>
-                '<div class="est s-' + e.estado + (e.id === sel ? " sel" : "") + '" data-id="' + esc(e.id) + '"><b>' + esc(e.id) + '</b><div class="ub">' + esc(e.ubicacion || "Sin ubicación") +
+                '<div class="est s-' + e.estado + (e.id === sel ? " sel" : "") + '" data-id="' + esc(e.id) + '"><b>' + esc(e.id) + '</b>' + (e.registrada === false ? '<span class="sin">sin registrar</span>' : "") + '<div class="ub">' + esc(e.ubicacion || "Sin ubicación") +
                 '</div><span class="insignia st-' + e.estado + '">' + NOMBRE[e.estado] + '</span><div class="datos">' +
                 (e.estado === "WATERING" ? e.caudal.toFixed(1) + " L/min &middot; " + e.volumen.toFixed(1) + " L &middot; " + esc(e.operario) : "") + "</div></div>").join("");
         }
 
-        function mapa() {
-            const zonas = {};
-            d.estaciones.forEach((e) => (zonas[e.ubicacion || "Sin ubicación"] = zonas[e.ubicacion || "Sin ubicación"] || []).push(e));
-            const nombres = Object.keys(zonas), n = Math.max(nombres.length, 1), cols = Math.min(n, 3), filas = Math.ceil(n / cols);
-            const W = 900, H = Math.max(260, filas * 190 + 20), cw = (W - 20) / cols;
-            let s = '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#0a1626"/>';
-            s += '<path d="M0,' + (H * .7) + ' C200,' + (H * .6) + ' 300,' + (H * .85) + ' 520,' + (H * .75) + ' S800,' + (H * .6) + ' 900,' + (H * .7) + ' L900,' + H + ' L0,' + H + ' Z" fill="#0d2238" opacity=".6"/>';
-            nombres.forEach((z, i) => {
-                const x = 10 + (i % cols) * cw, y = 14 + Math.floor(i / cols) * 190, ests = zonas[z];
-                s += '<rect x="' + x + '" y="' + y + '" width="' + (cw - 14) + '" height="172" rx="16" fill="#122339" stroke="#2a4468" stroke-dasharray="6 5"/>';
-                s += '<text x="' + (x + 16) + '" y="' + (y + 28) + '" fill="#9fb4d4" font-size="15" font-weight="700">' + esc(z) + "</text>";
-                ests.forEach((e, j) => {
-                    const per = Math.max(1, Math.floor((cw - 40) / 86)), cx = x + 46 + (j % per) * 86, cy = y + 90 + Math.floor(j / per) * 66;
-                    s += '<g class="nodo" data-id="' + esc(e.id) + '"><circle cx="' + cx + '" cy="' + cy + '" r="' + (e.id === sel ? 27 : 23) + '" fill="' + COLOR[e.estado] + '"' +
-                        (e.estado === "WATERING" ? ' class="puntito"' : "") + (e.id === sel ? ' stroke="#38bdf8" stroke-width="4"' : ' stroke="#0b1220" stroke-width="3"') + "/>" +
-                        '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" font-size="13" font-weight="700" fill="' + (e.estado === "WATERING" ? "#04210f" : "#fff") + '">' + esc(e.id.replace(/^WS-?/, "")) + "</text>" +
-                        '<text x="' + cx + '" y="' + (cy + 42) + '" text-anchor="middle" font-size="10.5" fill="#8ea0ba">' + esc(e.id) + "</text></g>";
+        /* ---------- MAPA: estaciones arrastrables ---------- */
+        const MW = 900, MH = 560, pendientes = {};   // pendientes: posiciones soltadas que el servidor aún no ha confirmado
+        let arrastre = null;
+
+        function zonasDe() {
+            const z = {};
+            d.estaciones.forEach((e) => (z[e.ubicacion || "Sin ubicación"] = z[e.ubicacion || "Sin ubicación"] || []).push(e));
+            return z;
+        }
+
+        /* posición de cada estación: la guardada (o recién soltada) y, si no tiene, una automática por ubicación */
+        function posiciones() {
+            const guardadas = (d.layout && d.layout.pos) || {}, z = zonasDe(), nombres = Object.keys(z).sort(), r = {};
+            nombres.forEach((nom, i) => {
+                const ax = 190 + (i % 3) * 260, ay = 150 + Math.floor(i / 3) * 230;
+                z[nom].forEach((e, j) => {
+                    const p = pendientes[e.id] || guardadas[e.id];
+                    r[e.id] = p ? { x: p.x, y: p.y } : { x: ax + ((j % 3) - 1) * 85, y: ay + Math.floor(j / 3) * 75 - 15 };
                 });
             });
-            const m = $("mapa"); m.setAttribute("viewBox", "0 0 " + W + " " + H); m.innerHTML = s;
+            return r;
         }
+
+        function puntoLibre(cx, cy, pos) {
+            for (let k = 0; k < 400; k++) {   // espiral alrededor de (cx, cy) hasta encontrar un hueco
+                const a = k * 2.4, rad = 6 * Math.sqrt(k) * 4, x = Math.min(MW - 40, Math.max(40, cx + rad * Math.cos(a))), y = Math.min(MH - 40, Math.max(40, cy + rad * Math.sin(a)));
+                if (Object.values(pos).every((p) => Math.hypot(p.x - x, p.y - y) > 70)) return { x, y };
+            }
+            return { x: cx, y: cy };
+        }
+
+        function mapa() {
+            const pos = posiciones(), z = zonasDe();
+            let s = '<defs><pattern id="rej" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#10213a" stroke-width="1"/></pattern></defs>' +
+                '<rect width="' + MW + '" height="' + MH + '" fill="#0a1626"/><rect width="' + MW + '" height="' + MH + '" fill="url(#rej)"/>';
+            // zonas: una mancha alrededor de las estaciones de cada ubicación
+            Object.keys(z).sort().forEach((nom) => {
+                const ps = z[nom].map((e) => pos[e.id]), xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
+                const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+                const rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 85, ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 70;
+                s += '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="#1f4d36" fill-opacity=".28" stroke="#2f7a52" stroke-opacity=".55"/>' +
+                    '<text x="' + cx + '" y="' + (cy - ry + 20) + '" text-anchor="middle" fill="#7f9bbd" font-size="11.5" letter-spacing="1.5">' + esc(nom.toUpperCase()) + "</text>";
+            });
+            d.estaciones.forEach((e) => {
+                const p = pos[e.id], on = e.id === sel, reg = e.estado === "WATERING";
+                s += '<g class="nodo' + (arrastre && arrastre.id === e.id ? " arrastrando" : "") + '" data-id="' + esc(e.id) + '">' +
+                    (reg ? '<circle cx="' + p.x + '" cy="' + p.y + '" r="22" fill="none" stroke="' + COLOR.WATERING + '" stroke-opacity=".5" class="puntito"/>' : "") +
+                    '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + (on ? 11 : 9) + '" fill="' + COLOR[e.estado] + '" stroke="' + (on ? "#38bdf8" : "#0b1220") + '" stroke-width="' + (on ? 3 : 2) + '"' + (reg ? ' class="puntito"' : "") + "/>" +
+                    '<circle cx="' + p.x + '" cy="' + p.y + '" r="26" fill="transparent"/>' +   // zona de agarre más grande
+                    '<text x="' + (p.x + 16) + '" y="' + (p.y + 4) + '" font-size="11.5" fill="#cfe0f5" font-weight="600">' + esc(e.id) +
+                    (reg ? ' <tspan fill="#8ea0ba" font-weight="400">&#183; regando</tspan>' : (e.registrada === false ? ' <tspan fill="#8ea0ba" font-weight="400">&#183; sin registrar</tspan>' : "")) + "</text></g>";
+            });
+            $("mapa").innerHTML = s;
+            $("listaUb").innerHTML = Object.keys(z).sort().map((n) => '<option value="' + esc(n) + '">').join("");
+        }
+
+        function aSvg(ev) {   // coordenadas del puntero en unidades del mapa
+            const m = $("mapa"), pt = m.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+            const q = pt.matrixTransform(m.getScreenCTM().inverse());
+            return { x: Math.min(MW - 12, Math.max(12, q.x)), y: Math.min(MH - 12, Math.max(12, q.y)) };
+        }
+
+        $("mapa").addEventListener("pointerdown", (ev) => {
+            const g = ev.target.closest(".nodo"); if (!g) return;
+            arrastre = { id: g.dataset.id, moved: false, sx: ev.clientX, sy: ev.clientY };
+            $("mapa").setPointerCapture(ev.pointerId); ev.preventDefault();
+        });
+        $("mapa").addEventListener("pointermove", (ev) => {
+            if (!arrastre) return;
+            if (!arrastre.moved && Math.hypot(ev.clientX - arrastre.sx, ev.clientY - arrastre.sy) < 5) return;
+            arrastre.moved = true; pendientes[arrastre.id] = aSvg(ev); mapa();
+        });
+        async function soltar(ev) {
+            if (!arrastre) return;
+            const a = arrastre; arrastre = null;
+            if (!a.moved) { elegir(a.id); return; }
+            const p = pendientes[a.id]; mapa();
+            const r = await api("/api/layout/pos", { id: a.id, x: p.x, y: p.y });
+            if (!r.ok) { mensajeMapa(r.error || "No se pudo guardar la posición.", false); abrirForm(true); }
+            setTimeout(() => { delete pendientes[a.id]; }, 3000);   // margen para que el sondeo ya traiga la posición guardada
+        }
+        $("mapa").addEventListener("pointerup", soltar);
+        $("mapa").addEventListener("pointercancel", soltar);
+
+        function mensajeMapa(t, ok) { const m = $("msgMapa"); m.className = "msg " + (ok ? "ok" : "mal"); m.textContent = t; }
+        function abrirForm(v) { $("formAnadir").style.display = v ? "block" : "none"; if (v) $("nId").focus(); }
+        $("bAnadir").onclick = () => { mensajeMapa("", true); abrirForm($("formAnadir").style.display !== "block"); };
+        $("bNo").onclick = () => abrirForm(false);
+        $("bOk").onclick = async () => {
+            const id = $("nId").value.trim(), ub = $("nUb").value.trim();
+            if (!id || !ub) { mensajeMapa("Rellena el ID y la ubicación.", false); return; }
+            const pos = posiciones(), mismos = d.estaciones.filter((e) => (e.ubicacion || "Sin ubicación") === ub).map((e) => pos[e.id]);
+            const cx = mismos.length ? mismos.reduce((a, p) => a + p.x, 0) / mismos.length : MW / 2, cy = mismos.length ? mismos.reduce((a, p) => a + p.y, 0) / mismos.length : MH / 2;
+            const l = puntoLibre(cx, cy, pos);
+            const r = await api("/api/layout/estacion", { id, ubicacion: ub, x: l.x, y: l.y });
+            if (!r.ok) { mensajeMapa(r.error || "No se pudo añadir.", false); return; }
+            $("nId").value = ""; mensajeMapa(id + " añadida. Arrástrala hasta su sitio.", true); sel = id;
+            const nuevo = await api("/api/panel"); if (nuevo.estaciones) { d = nuevo; pintar(); }
+        };
+        $("nUb").onkeydown = $("nId").onkeydown = (ev) => { if (ev.key === "Enter") $("bOk").click(); };
+        $("bReset").onclick = async () => {
+            if (!confirm("¿Volver a la colocación automática? Se perderán las posiciones que has dado a mano.")) return;
+            Object.keys(pendientes).forEach((k) => delete pendientes[k]);
+            const r = await api("/api/layout/reset", {}); if (!r.ok) mensajeMapa(r.error || "Error", false);
+            const nuevo = await api("/api/panel"); if (nuevo.estaciones) { d = nuevo; pintar(); }
+        };
 
         function detalle() {
             const e = d && d.estaciones.find((x) => x.id === sel), c = $("detalle");
@@ -143,6 +250,8 @@
                 fila("Volumen del riego", e.estado === "WATERING" ? e.volumen.toFixed(2) + " L" : "-") + fila("Operario", esc(e.operario || "-")) + "</div>" +
                 '<div class="acciones"><div class="fila"><input type="number" id="segUna" min="1" max="600" value="20"' + lock + '><button class="principal" data-a="iniciar"' + lock + '>&#9654; Iniciar riego</button></div>' +
                 '<button class="aviso" data-a="bloquear"' + lock + '>&#9940; Bloquear (fuera de servicio)</button><button data-a="activar"' + lock + '>&#9989; Activar</button></div>' +
+                (e.registrada === false ? '<div class="suave pequeno" style="margin-top:12px">Añadida desde el panel. Pasará a estar disponible cuando un Monitor se registre en CENTRAL con el ID <b>' + esc(e.id) + '</b>.</div>' +
+                    '<button class="pequeno" data-q="1" style="margin-top:8px">Quitar del mapa</button>' : "") +
                 '<div class="msg" id="msgU">' + (admin ? "" : "Administración desactivada: arranca el panel con ADMIN_TOKEN.") + "</div>";
         }
 
@@ -163,7 +272,7 @@
 
         function pintar() {
             cabecera(); kpis(); sucesos();
-            if (vista === "t") tarjetas(); else mapa();
+            if (vista === "t") tarjetas(); else if (!arrastre) mapa();
             if (!document.activeElement || !["segUna"].includes(document.activeElement.id)) detalle();
         }
 
@@ -175,10 +284,9 @@
 
         function elegir(id) { sel = id; pintar(); }
         $("tarjetas").onclick = (ev) => { const t = ev.target.closest(".est"); if (t) elegir(t.dataset.id); };
-        $("mapa").onclick = (ev) => { const t = ev.target.closest(".nodo"); if (t) elegir(t.dataset.id); };
         function vistaA(v) {
             vista = v; $("vT").classList.toggle("on", v === "t"); $("vM").classList.toggle("on", v === "m");
-            $("tarjetas").style.display = v === "t" ? "grid" : "none"; $("mapa").style.display = v === "m" ? "block" : "none"; if (d) pintar();
+            $("tarjetas").style.display = v === "t" ? "grid" : "none"; $("mapa").style.display = v === "m" ? "block" : "none"; $("barraMapa").style.display = v === "m" ? "block" : "none"; if (d) pintar();
         }
         $("vT").onclick = () => vistaA("t"); $("vM").onclick = () => vistaA("m");
 
@@ -186,7 +294,13 @@
             const r = await api("/api/admin", { destino, accion, segundos });
             const m = $(salida); if (m) { m.className = "msg " + (r.ok ? "ok" : "mal"); m.textContent = r.ok ? r.mensaje : (r.error || "Error"); }
         }
-        $("detalle").onclick = (ev) => {
+        $("detalle").onclick = async (ev) => {
+            if (ev.target.closest("button[data-q]") && sel) {
+                if (!confirm("¿Quitar " + sel + " del mapa?")) return;
+                const r = await api("/api/layout/quitar", { id: sel }); const m = $("msgU");
+                if (r.ok) { sel = null; const nuevo = await api("/api/panel"); if (nuevo.estaciones) { d = nuevo; pintar(); } } else if (m) { m.className = "msg mal"; m.textContent = r.error || "Error"; }
+                return;
+            }
             const a = ev.target.closest("button[data-a]"); if (!a || !sel) return;
             orden(sel, a.dataset.a, $("segUna") ? $("segUna").value : 20, "msgU");
         };
